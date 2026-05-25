@@ -1,0 +1,11 @@
+import { Module } from '@nestjs/common';
+import { ScheduleModule } from '@nestjs/schedule';
+import { CampaignsModule } from '../campaigns/campaigns.module';
+import { QueueModule } from '../queue/queue.module';
+import { SchedulerService } from './scheduler.service';
+
+@Module({
+  imports: [ScheduleModule.forRoot(), CampaignsModule, QueueModule],
+  providers: [SchedulerService],
+})
+export class SchedulerModule {}

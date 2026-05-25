@@ -1,0 +1,47 @@
+# Free-tier deploy: https://render.com/docs/free
+# 1. Create Neon Postgres → paste DATABASE_URL in Render dashboard
+# 2. Connect this repo → Render reads render.yaml → set remaining env vars (see docs/DEPLOY-FREE.md)
+
+services:
+  - type: web
+    name: whats-up-api
+    runtime: docker
+    plan: free
+    region: singapore
+    dockerfilePath: ./apps/api/Dockerfile
+    dockerContext: .
+    healthCheckPath: /api/v1/health
+    autoDeploy: true
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: PORT
+        value: 4000
+      - key: OLLAMA_MODE
+        value: off
+      - key: DATABASE_URL
+        sync: false
+      - key: DIRECT_URL
+        sync: false
+      - key: JWT_ACCESS_SECRET
+        generateValue: true
+      - key: JWT_REFRESH_SECRET
+        generateValue: true
+      - key: CORS_ORIGIN
+        sync: false
+      - key: PUBLIC_WEBHOOK_BASE_URL
+        sync: false
+      - key: WHATSAPP_VERIFY_TOKEN
+        sync: false
+      - key: WHATSAPP_PHONE_NUMBER_ID
+        sync: false
+      - key: WHATSAPP_ACCESS_TOKEN
+        sync: false
+      - key: META_APP_SECRET
+        sync: false
+      - key: OPENAI_API_KEY
+        sync: false
+      - key: ENCRYPTION_KEY
+        generateValue: true
+      - key: REDIS_URL
+        sync: false

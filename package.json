@@ -1,0 +1,22 @@
+{
+  "name": "whats-up",
+  "private": true,
+  "scripts": {
+    "dev": "pnpm --filter @whats-up/shared build && turbo dev",
+    "build": "turbo build",
+    "lint": "turbo lint",
+    "db:generate": "pnpm --filter api exec prisma generate",
+    "db:migrate": "pnpm --filter api exec prisma migrate dev",
+    "db:push": "pnpm --filter api exec prisma db push",
+    "db:seed": "pnpm --filter api exec prisma db seed",
+    "db:setup": "bash scripts/setup-db.sh"
+  },
+  "devDependencies": {
+    "turbo": "^2.5.4",
+    "typescript": "^5.8.3"
+  },
+  "packageManager": "pnpm@9.15.0",
+  "engines": {
+    "node": ">=20"
+  }
+}

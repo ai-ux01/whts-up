@@ -1,0 +1,254 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider  = "postgresql"
+  url       = env("DATABASE_URL")
+  directUrl = env("DIRECT_URL")
+}
+
+enum UserRole {
+  SUPER_ADMIN
+  ADMIN
+  AGENT
+}
+
+enum WorkspaceStatus {
+  ACTIVE
+  SUSPENDED
+}
+
+enum LeadStatus {
+  NEW
+  INTERESTED
+  FOLLOW_UP
+  CLOSED
+}
+
+enum MessageSender {
+  CONTACT
+  AGENT
+  AI
+  SYSTEM
+}
+
+enum MessageType {
+  TEXT
+  IMAGE
+  DOCUMENT
+  AUDIO
+  TEMPLATE
+}
+
+enum CampaignStatus {
+  DRAFT
+  SCHEDULED
+  RUNNING
+  COMPLETED
+  FAILED
+}
+
+enum RecipientStatus {
+  PENDING
+  SENT
+  DELIVERED
+  FAILED
+}
+
+enum AutomationTrigger {
+  NO_REPLY_24H
+}
+
+enum AutomationAction {
+  SEND_MESSAGE
+}
+
+model Workspace {
+  id                    String          @id @default(cuid())
+  name                  String
+  slug                  String          @unique
+  status                WorkspaceStatus @default(ACTIVE)
+  whatsappPhoneNumberId String?
+  whatsappAccessToken   String?
+  webhookVerifyToken    String?
+  aiEnabled             Boolean  @default(false)
+  aiSystemPrompt        String?
+  businessName          String?
+  metaAdsAccountId      String?
+  metaPageId            String?
+  googleAdsCustomerId   String?
+  facebookPixelId       String?
+  instagramUsername     String?
+  defaultUtmSource      String?
+  metaOAuthToken        String?
+  metaOAuthExpiresAt    DateTime?
+  metaConnectedAt       DateTime?
+  metaBusinessId        String?
+  googleOAuthAccessToken  String?
+  googleOAuthRefreshToken String?
+  googleOAuthExpiresAt    DateTime?
+  googleConnectedAt       DateTime?
+  createdAt             DateTime @default(now())
+  updatedAt             DateTime @updatedAt
+
+  users           User[]
+  contacts        Contact[]
+  conversations   Conversation[]
+  leads           Lead[]
+  campaigns       Campaign[]
+  automationRules AutomationRule[]
+}
+
+model User {
+  id           String   @id @default(cuid())
+  email        String   @unique
+  passwordHash String
+  name         String
+  role         UserRole @default(AGENT)
+  workspaceId  String?
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  workspace     Workspace? @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  assignedLeads Lead[]    @relation("AssignedLeads")
+  messages      Message[] @relation("AgentMessages")
+
+  @@index([workspaceId])
+}
+
+model Contact {
+  id          String   @id @default(cuid())
+  workspaceId String
+  phone       String
+  name        String?
+  leadSource  String?
+  utmSource   String?
+  utmMedium   String?
+  utmCampaign String?
+  metadata    Json?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  workspace     Workspace      @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  conversations Conversation[]
+  lead          Lead?
+
+  @@unique([workspaceId, phone])
+  @@index([workspaceId])
+  @@index([workspaceId, leadSource])
+}
+
+model Conversation {
+  id            String   @id @default(cuid())
+  workspaceId   String
+  contactId     String
+  lastMessageAt DateTime @default(now())
+  unreadCount   Int      @default(0)
+  lastSender    MessageSender?
+  automationFiredAt DateTime?
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  workspace Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  contact   Contact   @relation(fields: [contactId], references: [id], onDelete: Cascade)
+  messages  Message[]
+
+  @@index([workspaceId, lastMessageAt])
+  @@index([contactId])
+}
+
+model Message {
+  id             String        @id @default(cuid())
+  conversationId String
+  sender         MessageSender
+  senderUserId   String?
+  content        String
+  type           MessageType   @default(TEXT)
+  externalId     String?       @unique
+  deliveryStatus String?
+  metadata       Json?
+  createdAt      DateTime      @default(now())
+
+  conversation Conversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+  senderUser   User?        @relation("AgentMessages", fields: [senderUserId], references: [id])
+
+  @@index([conversationId, createdAt])
+}
+
+model ProcessedWebhookEvent {
+  wamid     String   @id
+  createdAt DateTime @default(now())
+}
+
+model Lead {
+  id                String     @id @default(cuid())
+  workspaceId       String
+  contactId         String     @unique
+  status            LeadStatus @default(NEW)
+  notes             String?
+  assignedUserId    String?
+  tags              String[]   @default([])
+  lastInteractionAt DateTime   @default(now())
+  createdAt         DateTime   @default(now())
+  updatedAt         DateTime   @updatedAt
+
+  workspace    Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  contact      Contact   @relation(fields: [contactId], references: [id], onDelete: Cascade)
+  assignedUser User?     @relation("AssignedLeads", fields: [assignedUserId], references: [id])
+
+  @@index([workspaceId, status])
+  @@index([assignedUserId])
+}
+
+model Campaign {
+  id             String         @id @default(cuid())
+  workspaceId    String
+  name           String
+  templateName   String
+  templateParams Json?
+  status         CampaignStatus @default(DRAFT)
+  scheduledAt    DateTime?
+  startedAt      DateTime?
+  completedAt    DateTime?
+  createdAt      DateTime       @default(now())
+  updatedAt      DateTime       @updatedAt
+
+  workspace  Workspace           @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  recipients CampaignRecipient[]
+
+  @@index([workspaceId, status])
+}
+
+model CampaignRecipient {
+  id                String          @id @default(cuid())
+  campaignId        String
+  phone             String
+  name              String?
+  status            RecipientStatus @default(PENDING)
+  error             String?
+  externalMessageId String?
+  sentAt            DateTime?
+  createdAt         DateTime        @default(now())
+
+  campaign Campaign @relation(fields: [campaignId], references: [id], onDelete: Cascade)
+
+  @@index([campaignId, status])
+  @@index([externalMessageId])
+}
+
+model AutomationRule {
+  id          String            @id @default(cuid())
+  workspaceId String
+  name        String
+  trigger     AutomationTrigger
+  action      AutomationAction
+  config      Json
+  enabled     Boolean           @default(true)
+  createdAt   DateTime          @default(now())
+  updatedAt   DateTime          @updatedAt
+
+  workspace Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+
+  @@index([workspaceId, enabled])
+}
