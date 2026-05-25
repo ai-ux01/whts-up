@@ -81,6 +81,10 @@ Add the same URLs in Meta / Google developer consoles.
 
 6. Go back to Render and set `CORS_ORIGIN` to your exact Vercel URL → **Redeploy** API.
 
+**Important:** Root Directory must be **`apps/web`** (not repo root, not `apps/api`). The API runs on **Render only**.
+
+If the build log shows `Packages in scope: api` or Nest/Prisma errors, fix **Settings → General → Root Directory** → `apps/web`, then redeploy. Do not use `turbo run build` for the whole monorepo on Vercel.
+
 ---
 
 ## 4. Meta WhatsApp webhook
@@ -107,6 +111,17 @@ Without Redis, campaigns still work **inline** (slower, no retries).
 
 - First request after ~15 min idle can take **30–60s**.
 - Use health check URL or UptimeRobot ping every 14 min if you need faster demos (optional).
+
+---
+
+## Vercel troubleshooting
+
+| Build log symptom | Fix |
+|-------------------|-----|
+| `Packages in scope: api` | Root Directory → **`apps/web`** |
+| `@prisma/client` has no exported member `UserRole` | Vercel is building the API; use `apps/web` only |
+| Installs `@nestjs/common`, `bcrypt`, `prisma` | Same — wrong app root |
+| `turbo run build` fails on `api#build` | Redeploy after setting root to `apps/web`; `vercel.json` uses `pnpm --filter web build` |
 
 ---
 

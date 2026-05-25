@@ -22,12 +22,14 @@ On the project **Dashboard**, click **Connect**.
 | Role | default role |
 | Connection type | **Pooled** for the app |
 
-Copy two strings (toggle **Pooled** vs **Direct** in the modal):
+Copy two strings. In the **Connect** modal, find the **Connection pooling** toggle (or a **Pooled connection** checkbox):
 
 | Env var | Neon UI | Used for |
 |---------|---------|----------|
-| `DATABASE_URL` | **Pooled** (`…-pooler…` in host) | API at runtime (Render / local) |
-| `DIRECT_URL` | **Direct** (no `pooler` in host) | Prisma migrations |
+| `DATABASE_URL` | **Pooled ON** — hostname contains `-pooler` | API at runtime (Render / local) |
+| `DIRECT_URL` | **Pooled OFF** (direct) — same user/password, hostname **without** `-pooler` | Prisma migrations |
+
+If you only copied the pooled string, you can build the direct URL yourself: take your pooled host and remove `-pooler` from it (e.g. `ep-foo-pooler.region.neon.tech` → `ep-foo.region.neon.tech`). Keep the same database name, user, and password.
 
 Both should end with **`?sslmode=require`** (add it if missing).
 
