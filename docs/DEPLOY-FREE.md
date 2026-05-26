@@ -114,6 +114,7 @@ Without Redis, campaigns still work **inline** (slower, no retries).
 | `prisma@7.8.0` / `url is no longer supported in schema files` | Redeploy latest `main` (Dockerfile uses Prisma **6** from the repo, not `npx prisma` → v7) |
 | `No open ports detected` | Usually the process crashed before listen (check logs above); fix Prisma/env first |
 | `P1012` datasource validation | Same as Prisma 7 mismatch |
+| `Cannot find module '@nestjs/core'` | Redeploy latest `main` (Docker runner uses `/app/apps/api` so pnpm deps resolve) |
 
 ---
 
