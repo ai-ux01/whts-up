@@ -8,7 +8,8 @@
     "start": "node dist/src/main",
     "start:prod": "node dist/src/main",
     "lint": "eslint \"src/**/*.ts\"",
-    "test:unit": "ts-node src/common/utils/whatsapp-session.spec.ts && ts-node src/crypto/secrets-crypto.spec.ts"
+    "test:unit": "ts-node src/common/utils/whatsapp-session.spec.ts && ts-node src/crypto/secrets-crypto.spec.ts",
+    "db:seed": "prisma db seed"
   },
   "dependencies": {
     "@nestjs/common": "^11.0.12",
