@@ -30,7 +30,9 @@ COPY --from=build /app/apps/api/node_modules ./apps/api/node_modules
 COPY --from=build /app/packages/shared/node_modules ./packages/shared/node_modules
 COPY --from=build /app/packages ./packages
 ENV PORT=4000
+ENV PATH="/app/apps/api/node_modules/.bin:/app/node_modules/.bin:${PATH}"
 EXPOSE 4000
 HEALTHCHECK --interval=30s --timeout=5s --start-period=40s \
   CMD wget -qO- http://127.0.0.1:${PORT}/api/v1/health || exit 1
-CMD ["sh", "-c", "npx prisma migrate deploy && node dist/src/main.js"]
+# Use project Prisma 6 CLI — bare `npx prisma` installs Prisma 7 and breaks schema.prisma
+CMD ["sh", "-c", "prisma migrate deploy --schema=./prisma/schema.prisma && node dist/src/main.js"]

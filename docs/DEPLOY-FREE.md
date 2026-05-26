@@ -107,6 +107,16 @@ Without Redis, campaigns still work **inline** (slower, no retries).
 
 ---
 
+## Render API troubleshooting
+
+| Log / error | Fix |
+|-------------|-----|
+| `prisma@7.8.0` / `url is no longer supported in schema files` | Redeploy latest `main` (Dockerfile uses Prisma **6** from the repo, not `npx prisma` → v7) |
+| `No open ports detected` | Usually the process crashed before listen (check logs above); fix Prisma/env first |
+| `P1012` datasource validation | Same as Prisma 7 mismatch |
+
+---
+
 ## Cold starts (Render free)
 
 - First request after ~15 min idle can take **30–60s**.
