@@ -16,6 +16,7 @@ import {
   CAMPAIGN_JOB_SEND,
   CAMPAIGN_QUEUE,
 } from './queue.constants';
+import { normalizeRedisUrl } from './redis-url';
 
 export type QueueMode = 'redis' | 'inline';
 
@@ -39,16 +40,26 @@ export class QueueService implements OnModuleInit, OnModuleDestroy {
   }
 
   async onModuleInit() {
-    const url = this.config.get<string>('REDIS_URL')?.trim();
-    if (!url) {
+    const raw = this.config.get<string>('REDIS_URL')?.trim();
+    if (!raw) {
       this.logger.warn(
         'REDIS_URL not set — campaigns/automations run inline (no job queue)',
       );
       return;
     }
 
+    const url = normalizeRedisUrl(raw);
+    if (url !== raw) {
+      this.logger.warn(
+        'REDIS_URL contained extra text; using normalized URL (paste only rediss://... from Upstash)',
+      );
+    }
+
     try {
       this.connection = new IORedis(url, { maxRetriesPerRequest: null });
+      this.connection.on('error', (err) => {
+        this.logger.warn(`Redis: ${err.message}`);
+      });
       await this.connection.ping();
       this.mode = 'redis';
 

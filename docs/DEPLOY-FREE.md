@@ -99,11 +99,13 @@ If the build log shows `Packages in scope: api` or Nest/Prisma errors, fix **Set
 
 ## 5. Optional: Redis (Upstash)
 
-1. [upstash.com](https://upstash.com) → Redis database → copy `REDIS_URL`.
-2. Add to Render env: `REDIS_URL=rediss://...`
-3. Redeploy API (campaign queue runs in background).
+1. [upstash.com](https://upstash.com) → your database → **Connect**.
+2. Copy **only** the URL that starts with `rediss://` (TLS), e.g.  
+   `rediss://default:YOUR_TOKEN@your-db.upstash.io:6379`
+3. **Do not** paste the `redis-cli --tls -u redis://...` command — flags like `--tls -u` break ioredis.
+4. Render → **Environment** → `REDIS_URL` = that `rediss://` string only → redeploy.
 
-Without Redis, campaigns still work **inline** (slower, no retries).
+Without Redis (leave `REDIS_URL` empty), campaigns still work **inline** (slower, no retries).
 
 ---
 
@@ -115,6 +117,7 @@ Without Redis, campaigns still work **inline** (slower, no retries).
 | `No open ports detected` | Usually the process crashed before listen (check logs above); fix Prisma/env first |
 | `P1012` datasource validation | Same as Prisma 7 mismatch |
 | `Cannot find module '@nestjs/core'` | Redeploy latest `main` (Docker runner uses `/app/apps/api` so pnpm deps resolve) |
+| `ENOENT %20--tls%20-u%20redis://` | `REDIS_URL` includes `redis-cli` flags; use only `rediss://default:...@....upstash.io:6379` |
 
 ---
 
