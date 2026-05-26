@@ -28,11 +28,12 @@ COPY --from=build /app/packages/shared /app/packages/shared
 COPY --from=build /app/apps/api/dist ./dist
 COPY --from=build /app/apps/api/package.json ./package.json
 COPY --from=build /app/apps/api/prisma ./prisma
+COPY --from=build /app/apps/api/scripts ./scripts
 COPY --from=build /app/apps/api/node_modules ./node_modules
+RUN chmod +x ./scripts/docker-start.sh
 ENV PORT=4000
 ENV PATH="/app/apps/api/node_modules/.bin:${PATH}"
 EXPOSE 4000
 HEALTHCHECK --interval=30s --timeout=5s --start-period=40s \
   CMD wget -qO- http://127.0.0.1:${PORT}/api/v1/health || exit 1
-# Use project Prisma 6 CLI — bare `npx prisma` installs Prisma 7 and breaks schema.prisma
-CMD ["sh", "-c", "prisma migrate deploy --schema=./prisma/schema.prisma && node dist/src/main.js"]
+CMD ["./scripts/docker-start.sh"]

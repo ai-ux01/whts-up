@@ -107,6 +107,8 @@ If the build log shows `Packages in scope: api` or Nest/Prisma errors, fix **Set
 
 Without Redis (leave `REDIS_URL` empty), campaigns still work **inline** (slower, no retries).
 
+**Upstash + BullMQ:** If logs say `Eviction policy is optimistic-volatile`, open Upstash → database → **Eviction** → set to **`noeviction`** (recommended for job queues). The API still runs without this change.
+
 ---
 
 ## Render API troubleshooting
@@ -119,6 +121,8 @@ Without Redis (leave `REDIS_URL` empty), campaigns still work **inline** (slower
 | `Cannot find module '@nestjs/core'` | Redeploy latest `main` (Docker runner uses `/app/apps/api` so pnpm deps resolve) |
 | `ENOENT %20--tls%20-u%20redis://` | `REDIS_URL` includes `redis-cli` flags; use only `rediss://default:...@....upstash.io:6379` |
 | `ECONNRESET` / port 4000 timeout with Redis errors | Use `rediss://` (TLS) for Upstash, or **delete** `REDIS_URL` to run without queue |
+| `No open ports` then `API running on port 4000` | Often a race during DB migrate; if health URL works, service is live |
+| `Eviction policy is optimistic-volatile` | Upstash → set eviction to **noeviction** (optional) |
 
 ---
 
