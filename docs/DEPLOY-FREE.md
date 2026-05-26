@@ -118,6 +118,7 @@ Without Redis (leave `REDIS_URL` empty), campaigns still work **inline** (slower
 | `P1012` datasource validation | Same as Prisma 7 mismatch |
 | `Cannot find module '@nestjs/core'` | Redeploy latest `main` (Docker runner uses `/app/apps/api` so pnpm deps resolve) |
 | `ENOENT %20--tls%20-u%20redis://` | `REDIS_URL` includes `redis-cli` flags; use only `rediss://default:...@....upstash.io:6379` |
+| `ECONNRESET` / port 4000 timeout with Redis errors | Use `rediss://` (TLS) for Upstash, or **delete** `REDIS_URL` to run without queue |
 
 ---
 

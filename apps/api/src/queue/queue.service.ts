@@ -16,7 +16,11 @@ import {
   CAMPAIGN_JOB_SEND,
   CAMPAIGN_QUEUE,
 } from './queue.constants';
-import { normalizeRedisUrl } from './redis-url';
+import {
+  buildRedisOptions,
+  normalizeRedisUrl,
+  pingWithTimeout,
+} from './redis-url';
 
 export type QueueMode = 'redis' | 'inline';
 
@@ -39,7 +43,7 @@ export class QueueService implements OnModuleInit, OnModuleDestroy {
     return this.mode;
   }
 
-  async onModuleInit() {
+  onModuleInit() {
     const raw = this.config.get<string>('REDIS_URL')?.trim();
     if (!raw) {
       this.logger.warn(
@@ -47,7 +51,11 @@ export class QueueService implements OnModuleInit, OnModuleDestroy {
       );
       return;
     }
+    // Do not block HTTP startup on Redis (Render health check needs port 4000 quickly)
+    void this.connectRedis(raw);
+  }
 
+  private async connectRedis(raw: string) {
     const url = normalizeRedisUrl(raw);
     if (url !== raw) {
       this.logger.warn(
@@ -55,12 +63,17 @@ export class QueueService implements OnModuleInit, OnModuleDestroy {
       );
     }
 
-    try {
-      this.connection = new IORedis(url, { maxRetriesPerRequest: null });
-      this.connection.on('error', (err) => {
+    const redis = new IORedis(url, buildRedisOptions(url));
+    const onError = (err: Error) => {
+      if (this.connection === redis) {
         this.logger.warn(`Redis: ${err.message}`);
-      });
-      await this.connection.ping();
+      }
+    };
+    redis.on('error', onError);
+
+    try {
+      await pingWithTimeout(() => redis.ping(), 8_000);
+      this.connection = redis;
       this.mode = 'redis';
 
       this.campaignQueue = new Queue(CAMPAIGN_QUEUE, {
@@ -101,6 +114,8 @@ export class QueueService implements OnModuleInit, OnModuleDestroy {
 
       this.logger.log(`Job queues active (${url})`);
     } catch (err) {
+      redis.off('error', onError);
+      redis.disconnect(false);
       this.logger.error(
         'Redis unavailable — falling back to inline processing',
         err,
@@ -118,7 +133,9 @@ export class QueueService implements OnModuleInit, OnModuleDestroy {
     await this.automationWorker?.close();
     await this.campaignQueue?.close();
     await this.automationQueue?.close();
-    this.connection?.disconnect();
+    if (this.connection?.status === 'ready' || this.connection?.status === 'connect') {
+      this.connection.disconnect(false);
+    }
     this.campaignWorker = null;
     this.automationWorker = null;
     this.campaignQueue = null;
