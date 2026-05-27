@@ -1,6 +1,7 @@
 import { Injectable, Logger, NotFoundException } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
 import { AiService } from '../ai/ai.service';
+import { SecretsCryptoService } from '../crypto/secrets-crypto.service';
 import { LeadStatus } from '@prisma/client';
 
 @Injectable()
@@ -9,7 +10,8 @@ export class ContentService {
 
   constructor(
     private prisma: PrismaService,
-    private aiService: AiService
+    private aiService: AiService,
+    private secretsCrypto: SecretsCryptoService
   ) {}
 
   // ==========================================
@@ -459,12 +461,56 @@ For each scene, return a scene text narration (Hinglish/English), duration (4-6s
           }
         ]
       });
-      return this.prisma.socialAccount.findMany({
+      const seeded = await this.prisma.socialAccount.findMany({
         where: { workspaceId }
       });
+      return seeded.map((acc) => ({ ...acc, accessToken: acc.accessToken ? '******' : null }));
     }
 
-    return accounts;
+    return accounts.map((acc) => ({ ...acc, accessToken: acc.accessToken ? '******' : null }));
+  }
+
+  async connectSocialAccount(workspaceId: string, data: {
+    platform: string;
+    accountId: string;
+    accountName: string;
+    accessToken: string;
+    profilePicture?: string;
+  }) {
+    const encryptedToken = this.secretsCrypto.encryptIfNeeded(data.accessToken);
+
+    const account = await this.prisma.socialAccount.upsert({
+      where: {
+        workspaceId_platform_accountId: {
+          workspaceId,
+          platform: data.platform,
+          accountId: data.accountId,
+        },
+      },
+      update: {
+        accountName: data.accountName,
+        accessToken: encryptedToken,
+        profilePicture: data.profilePicture || null,
+      },
+      create: {
+        workspaceId,
+        platform: data.platform,
+        accountId: data.accountId,
+        accountName: data.accountName,
+        accessToken: encryptedToken,
+        profilePicture: data.profilePicture || null,
+      },
+    });
+
+    return { ...account, accessToken: '******' };
+  }
+
+  async decryptSocialToken(socialAccountId: string): Promise<string | null> {
+    const account = await this.prisma.socialAccount.findUnique({
+      where: { id: socialAccountId }
+    });
+    if (!account || !account.accessToken) return null;
+    return this.secretsCrypto.decryptIfNeeded(account.accessToken);
   }
 
   // ==========================================

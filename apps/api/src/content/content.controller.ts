@@ -96,6 +96,20 @@ export class ContentController {
     return this.contentService.getSocialAccounts(requireWorkspaceId(user));
   }
 
+  @Post('social-accounts')
+  connectSocialAccount(
+    @CurrentUser() user: AuthUser,
+    @Body() body: {
+      platform: string;
+      accountId: string;
+      accountName: string;
+      accessToken: string;
+      profilePicture?: string;
+    }
+  ) {
+    return this.contentService.connectSocialAccount(requireWorkspaceId(user), body);
+  }
+
   // ==========================================
   // PLATFORM SOCIAL ANALYTICS ENDPOINTS
   // ==========================================
