@@ -100,6 +100,13 @@ model Workspace {
   leads           Lead[]
   campaigns       Campaign[]
   automationRules AutomationRule[]
+  socialAccounts  SocialAccount[]
+  socialPosts     SocialPost[]
+  reelProjects    ReelProject[]
+  mediaAssets     MediaAsset[]
+  brandKit        BrandKit?
+  contentIdeas    ContentIdea[]
+  scheduledPosts  ScheduledPost[]
 }
 
 model User {
@@ -254,3 +261,146 @@ model AutomationRule {
 
   @@index([workspaceId, enabled])
 }
+
+model SocialAccount {
+  id             String   @id @default(cuid())
+  workspaceId    String
+  platform       String   // e.g. 'FACEBOOK', 'INSTAGRAM'
+  accountId      String
+  accountName    String
+  accessToken    String?
+  profilePicture String?
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  workspace Workspace  @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  posts     SocialPost[]
+
+  @@unique([workspaceId, platform, accountId])
+  @@index([workspaceId])
+}
+
+model SocialPost {
+  id              String   @id @default(cuid())
+  workspaceId     String
+  socialAccountId String?
+  caption         String
+  hashtags        String[] @default([])
+  mediaUrl        String?
+  platforms       String[] @default([]) // e.g. ['instagram_reel', 'facebook_post']
+  status          String   @default("DRAFT") // DRAFT, SCHEDULED, PUBLISHED, FAILED
+  scheduledAt     DateTime?
+  publishedAt     DateTime?
+  error           String?
+  postId          String?  // Meta API post ID
+  insights        Json?    // views, clicks, engagement metrics
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  workspace     Workspace      @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  socialAccount SocialAccount? @relation(fields: [socialAccountId], references: [id], onDelete: SetNull)
+
+  @@index([workspaceId, status])
+}
+
+model ReelProject {
+  id                String   @id @default(cuid())
+  workspaceId       String
+  title             String
+  niche             String
+  offer             String?
+  script            String?
+  voiceVoiceId      String?
+  audioUrl          String?
+  videoUrl          String?
+  status            String   @default("DRAFT") // DRAFT, GENERATING, COMPLETED, FAILED
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
+
+  workspace Workspace   @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  scenes    ReelScene[]
+
+  @@index([workspaceId])
+}
+
+model ReelScene {
+  id          String   @id @default(cuid())
+  projectId   String
+  sceneNumber Int
+  text        String
+  imagePrompt String?
+  imageUrl    String?
+  audioUrl    String?
+  duration    Float    @default(5.0)
+  transition  String?  @default("fade")
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  project ReelProject @relation(fields: [projectId], references: [id], onDelete: Cascade)
+
+  @@index([projectId])
+}
+
+model MediaAsset {
+  id          String   @id @default(cuid())
+  workspaceId String
+  name        String
+  url         String
+  type        String   // IMAGE, VIDEO, AUDIO
+  size        Int?
+  folder      String?  @default("General") // Reels, Stock, Campaigns, etc.
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  workspace Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+
+  @@index([workspaceId, folder])
+}
+
+model BrandKit {
+  id             String   @id @default(cuid())
+  workspaceId    String   @unique
+  logoUrl        String?
+  primaryColor   String?  @default("#16a34a")
+  secondaryColor String?  @default("#14532d")
+  fontFamily     String?  @default("Inter")
+  brandVoice     String?  @default("Professional") // Professional, Hinglish-Casual, Humorous, Energetic
+  ctaTemplate    String?  @default("DM us 'START' to learn more!")
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  workspace Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+}
+
+model ContentIdea {
+  id          String   @id @default(cuid())
+  workspaceId String
+  topic       String
+  hook        String
+  niche       String
+  body        String?
+  cta         String?
+  type        String   @default("REEL") // REEL, POST, CAROUSEL
+  saved       Boolean  @default(false)
+  createdAt   DateTime @default(now())
+
+  workspace Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+
+  @@index([workspaceId, type])
+}
+
+model ScheduledPost {
+  id          String   @id @default(cuid())
+  workspaceId String
+  title       String
+  content     String
+  scheduledAt DateTime
+  status      String   @default("PENDING") // PENDING, SENT, FAILED
+  platform    String   // INSTAGRAM, FACEBOOK, BOTH
+  createdAt   DateTime @default(now())
+
+  workspace Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+
+  @@index([workspaceId, scheduledAt])
+}
+

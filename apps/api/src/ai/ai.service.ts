@@ -200,4 +200,12 @@ export class AiService {
       return null;
     }
   }
+
+  getClient() {
+    return this.client;
+  }
+
+  getChatModel() {
+    return this.chatModel;
+  }
 }

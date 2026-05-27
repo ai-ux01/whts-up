@@ -21,6 +21,7 @@ import { HealthModule } from './health/health.module';
 import { CryptoModule } from './crypto/crypto.module';
 import { QueueModule } from './queue/queue.module';
 import { IntegrationsModule } from './integrations/integrations.module';
+import { ContentModule } from './content/content.module';
 
 @Module({
   imports: [
@@ -50,6 +51,7 @@ import { IntegrationsModule } from './integrations/integrations.module';
     PlatformModule,
     HealthModule,
     IntegrationsModule,
+    ContentModule,
   ],
   providers: [
     {
