@@ -118,4 +118,23 @@ export class ContentController {
   getPlatformAnalytics(@CurrentUser() user: AuthUser) {
     return this.contentService.getPlatformAnalytics(requireWorkspaceId(user));
   }
+
+  // ==========================================
+  // AI RESEARCH ENGINE ENDPOINTS
+  // ==========================================
+
+  @Post('research')
+  generateResearch(@CurrentUser() user: AuthUser, @Body() body: { topic: string; niche: string }) {
+    return this.contentService.generateResearch(requireWorkspaceId(user), body);
+  }
+
+  @Get('research')
+  getResearchHistory(@CurrentUser() user: AuthUser) {
+    return this.contentService.getResearchHistory(requireWorkspaceId(user));
+  }
+
+  @Delete('research/:id')
+  deleteResearch(@CurrentUser() user: AuthUser, @Param('id') id: string) {
+    return this.contentService.deleteResearch(requireWorkspaceId(user), id);
+  }
 }

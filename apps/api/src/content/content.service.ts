@@ -560,4 +560,128 @@ For each scene, return a scene text narration (Hinglish/English), duration (4-6s
 
     return stats;
   }
+
+  // ==========================================
+  // AI RESEARCH ENGINE METHODS
+  // ==========================================
+
+  async getResearchHistory(workspaceId: string) {
+    return this.prisma.researchReport.findMany({
+      where: { workspaceId },
+      orderBy: { createdAt: 'desc' }
+    });
+  }
+
+  async deleteResearch(workspaceId: string, id: string) {
+    return this.prisma.researchReport.delete({
+      where: { id, workspaceId }
+    });
+  }
+
+  async generateResearch(workspaceId: string, params: { topic: string; niche: string }) {
+    const client = this.aiService.getClient();
+    const model = this.aiService.getChatModel();
+
+    const systemPrompt = `You are an elite short-form growth hacker, SaaS marketing consultant, and viral hook copywriter specializing in Indian SMB competitive intelligence.
+Generate a comprehensive, highly actionable growth research report based on the user's business niche and targeted topic.
+You MUST return a JSON object with this exact schema:
+{
+  "viralHooks": [
+    { "hook": "The specific video hook text copy in Hinglish or conversational Hindi/English", "type": "Curiosity / Contrarian / Pain-Point / Direct-Value", "ctrPower": 95, "executionTips": "Tips on how to film/present this hook visually" }
+  ],
+  "competitors": [
+    { "weakness": "Detail common weaknesses or generic strategies of competitors in this space", "opportunity": "Detail our specific growth advantage or angle of attack", "scriptAngle": "Recommended video angle or subtitle counter-strategy" }
+  ],
+  "trends": [
+    { "query": "High-volume search query in India", "angle": "Trending visual angle or storyline suggestion", "keywords": ["kw1", "kw2"] }
+  ]
+}
+Ensure the content is detailed, creative, and highly specific to the targeted niche. Limit hooks to exactly 3 high-impact entries, competitors to exactly 2 entries, and trends to exactly 2 entries.`;
+
+    const userPrompt = `Generate a detailed growth research report for niche: "${params.niche}" and topic: "${params.topic}"`;
+
+    let reportData: any = null;
+
+    if (client) {
+      try {
+        const completion = await client.chat.completions.create({
+          model,
+          messages: [
+            { role: 'system', content: systemPrompt },
+            { role: 'user', content: userPrompt }
+          ],
+          response_format: { type: "json_object" },
+          temperature: 0.8,
+        });
+
+        reportData = JSON.parse(completion.choices[0]?.message?.content || '{}');
+      } catch (err) {
+        this.logger.error('Research Engine AI compilation error', err);
+        reportData = this.getMockResearchData(params.niche, params.topic);
+      }
+    } else {
+      reportData = this.getMockResearchData(params.niche, params.topic);
+    }
+
+    // Save report to database
+    return this.prisma.researchReport.create({
+      data: {
+        workspaceId,
+        topic: params.topic,
+        niche: params.niche,
+        viralHooks: reportData.viralHooks || [],
+        competitors: reportData.competitors || [],
+        trends: reportData.trends || [],
+      }
+    });
+  }
+
+  private getMockResearchData(niche: string, topic: string) {
+    return {
+      viralHooks: [
+        {
+          hook: `Stop scrolling! Agar aap bhi ${topic} me struggle kar rahe hain, toh ye 3 hacks miss mat karna.`,
+          type: 'Pain-Point',
+          ctrPower: 94,
+          executionTips: 'Start with a close-up visual showing a frustrated face, then point to the screen showing statistics.'
+        },
+        {
+          hook: `Most local businesses fail because of this one mistake in ${niche}. Jo aapka lakhon ka loss kara rahi hai!`,
+          type: 'Contrarian',
+          ctrPower: 97,
+          executionTips: 'Open with high-tempo background music, showing cash transition animations, pointing aggressively.'
+        },
+        {
+          hook: `The simple secret formula to double your leads in ${topic}. Ab local clients dhoondna band karo!`,
+          type: 'Curiosity',
+          ctrPower: 92,
+          executionTips: 'Hold a green whiteboard, write the word "REVENUE" and circle it in front of the camera.'
+        }
+      ],
+      competitors: [
+        {
+          weakness: `Most competitors in ${niche} are still running standard, slow newspaper flyers and manual calls which take 24 hours to respond.`,
+          opportunity: `Deploy dynamic speed-to-lead automation that instantly text back incoming queries on WhatsApp within 30 seconds!`,
+          scriptAngle: 'Highlight speed-to-lead contrasting a slow competitor office vs your live instantly converting dashboards.'
+        },
+        {
+          weakness: `Generic brand captions and boring stock images that look identical to every local business in India.`,
+          opportunity: `Use conversational Romanized Hinglish hooks pitching immediate value combined with curated vertical custom timelines.`,
+          scriptAngle: 'Speak casually in Roman script, showing dynamic real-world screenshots of client metrics.'
+        }
+      ],
+      trends: [
+        {
+          query: `Best local ${niche} services near me`,
+          angle: 'Show a behind-the-scenes office vlog, showing your pipeline and how active calls get converted instantly.',
+          keywords: [niche.toLowerCase(), 'leadmanager', 'smbgrowth', 'automation']
+        },
+        {
+          query: `How to save money on ${topic} setup`,
+          angle: 'Break down the direct ROI calculation of switching from traditional slow systems to an automated, structured SaaS pipeline.',
+          keywords: ['savemoney', topic.replace(/\s+/g, '').toLowerCase(), 'techhacks', 'indianbiz']
+        }
+      ]
+    };
+  }
 }

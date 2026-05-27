@@ -107,6 +107,7 @@ model Workspace {
   brandKit        BrandKit?
   contentIdeas    ContentIdea[]
   scheduledPosts  ScheduledPost[]
+  researchReports ResearchReport[]
 }
 
 model User {
@@ -402,5 +403,21 @@ model ScheduledPost {
   workspace Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
 
   @@index([workspaceId, scheduledAt])
+}
+
+model ResearchReport {
+  id           String   @id @default(cuid())
+  workspaceId  String
+  topic        String
+  niche        String
+  viralHooks   Json     // List of viral hooks with power ratings
+  competitors  Json     // Competitor gaps and weaknesses
+  trends       Json     // Search queries and content angles
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  workspace    Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+
+  @@index([workspaceId])
 }
 
