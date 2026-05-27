@@ -8,7 +8,7 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
-import { Image, Video, Music, FolderOpen, Upload, Trash, Search, Folder, MoreVertical, Eye, Download } from 'lucide-react';
+import { Image as ImageIcon, Video, Music, FolderOpen, Upload, Trash, Search, Folder, MoreVertical, Eye, Download } from 'lucide-react';
 
 interface MediaAsset {
   id: string;
@@ -73,7 +73,7 @@ export default function MediaLibraryPage() {
 
   // Upload Asset Mutation
   const uploadMutation = useMutation({
-    mutationFn: (body: any) =>
+    mutationFn: (body: { name: string; url: string; type: string; size: number; folder: string }) =>
       api<MediaAsset>('/content/media', {
         method: 'POST',
         body: JSON.stringify(body),
@@ -82,20 +82,20 @@ export default function MediaLibraryPage() {
       queryClient.invalidateQueries({ queryKey: ['media-assets'] });
       toast.success('Media asset successfully stored in Cloud OS Library!');
     },
-    onError: (e: any) => toast.error(e.message || 'Upload failed'),
+    onError: (e: { message?: string }) => toast.error(e.message || 'Upload failed'),
   });
 
   // Delete Asset Mutation
   const deleteMutation = useMutation({
     mutationFn: (id: string) =>
-      api<any>(`/content/media/${id}`, {
+      api<unknown>(`/content/media/${id}`, {
         method: 'DELETE',
       }),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['media-assets'] });
       toast.success('Asset removed successfully.');
     },
-    onError: (e: any) => toast.error(e.message || 'Deletion failed'),
+    onError: (e: { message?: string }) => toast.error(e.message || 'Deletion failed'),
   });
 
   const handleSimulatedUpload = () => {
@@ -120,7 +120,7 @@ export default function MediaLibraryPage() {
   const getAssetIcon = (type: string) => {
     if (type === 'VIDEO') return <Video className="h-5 w-5 text-indigo-500" />;
     if (type === 'AUDIO') return <Music className="h-5 w-5 text-amber-500" />;
-    return <Image className="h-5 w-5 text-emerald-500" />;
+    return <ImageIcon className="h-5 w-5 text-emerald-500" />;
   };
 
   const formatSize = (bytes: number) => {

@@ -66,7 +66,7 @@ export default function ContentStudioPage() {
 
   // Generate Copy Mutation
   const generateMutation = useMutation({
-    mutationFn: (body: any) =>
+    mutationFn: (body: { type: string; topic: string; tone: string; language: string }) =>
       api<{ content: string }>('/content/studio/generate', {
         method: 'POST',
         body: JSON.stringify(body),
@@ -75,12 +75,12 @@ export default function ContentStudioPage() {
       setGeneratedResult(data.content);
       toast.success('AI content generated successfully!');
     },
-    onError: (e: any) => toast.error(e.message || 'Generation failed'),
+    onError: (e: { message?: string }) => toast.error(e.message || 'Generation failed'),
   });
 
   // Generate Ideas Mutation
   const ideasMutation = useMutation({
-    mutationFn: (body: any) =>
+    mutationFn: (body: { niche: string }) =>
       api<ContentIdea[]>('/content/ideas/generate', {
         method: 'POST',
         body: JSON.stringify(body),
@@ -88,12 +88,12 @@ export default function ContentStudioPage() {
     onSuccess: () => {
       toast.success('Viral content concepts generated!');
     },
-    onError: (e: any) => toast.error(e.message || 'Ideas compilation failed'),
+    onError: (e: { message?: string }) => toast.error(e.message || 'Ideas compilation failed'),
   });
 
   // Update Brand Kit Mutation
   const updateBrandMutation = useMutation({
-    mutationFn: (body: any) =>
+    mutationFn: (body: { primaryColor: string; secondaryColor: string; brandVoice: string; ctaTemplate: string }) =>
       api<BrandKit>('/content/brand-kit', {
         method: 'PATCH',
         body: JSON.stringify(body),
@@ -102,7 +102,7 @@ export default function ContentStudioPage() {
       queryClient.invalidateQueries({ queryKey: ['brand-kit'] });
       toast.success('Brand Kit saved successfully!');
     },
-    onError: (e: any) => toast.error(e.message || 'Saving failed'),
+    onError: (e: { message?: string }) => toast.error(e.message || 'Saving failed'),
   });
 
   const handleCopy = () => {
@@ -312,7 +312,7 @@ export default function ContentStudioPage() {
                     <CardTitle className="text-base font-semibold leading-tight pr-6">{idea.title}</CardTitle>
                   </CardHeader>
                   <CardContent className="space-y-3 text-sm flex-1 flex flex-col justify-between">
-                    <p className="text-muted-foreground italic font-medium">"{idea.hook}"</p>
+                    <p className="text-muted-foreground italic font-medium">&quot;{idea.hook}&quot;</p>
                     <p className="text-xs text-muted-foreground">{idea.description}</p>
                     <div className="pt-3 border-t text-xs font-semibold text-primary/90">
                       💡 Call To Action: {idea.cta}

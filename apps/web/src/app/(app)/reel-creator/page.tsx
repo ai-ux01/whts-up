@@ -51,7 +51,7 @@ export default function ReelCreatorPage() {
 
   // Create Project Mutation
   const createMutation = useMutation({
-    mutationFn: (body: any) =>
+    mutationFn: (body: { title: string; niche: string; offer: string; voiceId: string }) =>
       api<ReelProject>('/content/reels', {
         method: 'POST',
         body: JSON.stringify(body),
@@ -65,7 +65,7 @@ export default function ReelCreatorPage() {
       setOffer('');
       toast.success('AI Reel Project generated! Review the timeline.');
     },
-    onError: (e: any) => toast.error(e.message || 'Failed to create project'),
+    onError: (e: { message?: string }) => toast.error(e.message || 'Failed to create project'),
   });
 
   // Render Video Mutation
@@ -79,13 +79,13 @@ export default function ReelCreatorPage() {
       setActiveProject(data);
       toast.success('Video compile finished! Ready to publish.');
     },
-    onError: (e: any) => toast.error(e.message || 'Render failed'),
+    onError: (e: { message?: string }) => toast.error(e.message || 'Render failed'),
   });
 
   // Direct Social Publish Mutation
   const publishMutation = useMutation({
-    mutationFn: (id: string) =>
-      api<any>('/content/calendar', {
+    mutationFn: (_id: string) =>
+      api<unknown>('/content/calendar', {
         method: 'POST',
         body: JSON.stringify({
           title: activeProject?.title || 'Social Reel',
@@ -97,7 +97,7 @@ export default function ReelCreatorPage() {
     onSuccess: () => {
       toast.success('Published directly to Instagram Reels and Facebook Page!');
     },
-    onError: (e: any) => toast.error(e.message || 'Publishing failed'),
+    onError: (e: { message?: string }) => toast.error(e.message || 'Publishing failed'),
   });
 
   // Interactive Player Loop
@@ -270,7 +270,7 @@ export default function ReelCreatorPage() {
                         <span className="px-2 py-0.5 bg-primary/10 text-primary rounded text-[10px] uppercase">{scene.transition || 'fade'}</span>
                       </div>
                     </div>
-                    <p className="text-foreground leading-relaxed leading-5">"{scene.text}"</p>
+                    <p className="text-foreground leading-relaxed leading-5">&quot;{scene.text}&quot;</p>
                     {scene.imageUrl && (
                       <div className="mt-2 text-[10px] text-muted-foreground flex items-center gap-1.5">
                         <Check className="h-3 w-3 text-emerald-500" /> Stock image generated

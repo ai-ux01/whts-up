@@ -38,7 +38,7 @@ export default function ContentCalendarPage() {
 
   // Schedule Post Mutation
   const scheduleMutation = useMutation({
-    mutationFn: (body: any) =>
+    mutationFn: (body: { title: string; content: string; scheduledAt: string; platform: string }) =>
       api<ScheduledPost>('/content/calendar', {
         method: 'POST',
         body: JSON.stringify(body),
@@ -51,7 +51,7 @@ export default function ContentCalendarPage() {
       setShowScheduleForm(false);
       toast.success('Social post successfully scheduled and synced in Calendar queue!');
     },
-    onError: (e: any) => toast.error(e.message || 'Scheduling failed'),
+    onError: (e: { message?: string }) => toast.error(e.message || 'Scheduling failed'),
   });
 
   const defaultMockPosts = [
@@ -174,7 +174,7 @@ export default function ContentCalendarPage() {
                           </span>
                           <span className="font-bold text-foreground text-sm">{post.title}</span>
                         </div>
-                        <p className="text-muted-foreground leading-relaxed">"{post.content}"</p>
+                        <p className="text-muted-foreground leading-relaxed">&quot;{post.content}&quot;</p>
                       </div>
 
                       <div className="flex flex-col items-end gap-1.5 shrink-0 text-right">
