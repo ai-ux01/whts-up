@@ -1,239 +1,20 @@
-import {
-  LeadStatus,
-  MessageSender,
-  PrismaClient,
-  UserRole,
-} from '@prisma/client';
+import { PrismaClient, UserRole } from '@prisma/client';
 import * as bcrypt from 'bcrypt';
+import {
+  generateDummyData,
+  getRandomMarketingData,
+  VERTICAL_CONFIGS,
+} from '../src/platform/utils/dummy-data-generator';
 
 const prisma = new PrismaClient();
-
-/** Demo marketing account IDs (not real — for UI/dashboard testing). */
-const MARKETING = {
-  metaAdsAccountId: 'act_1283746501234567',
-  metaPageId: '8844221100998877',
-  metaBusinessId: '5566778899001122',
-  googleAdsCustomerId: '123-456-7890',
-  facebookPixelId: '987654321098765',
-  instagramUsername: 'demobusinessindia',
-  defaultUtmSource: 'whatsapp',
-};
-
-type SeedLead = {
-  phone: string;
-  name: string;
-  leadSource: string;
-  utmSource: string;
-  utmMedium?: string;
-  utmCampaign?: string;
-  status: LeadStatus;
-  tags: string[];
-  notes: string;
-  lastMessage: string;
-  sender: MessageSender;
-};
-
-const SEED_LEADS: SeedLead[] = [
-  {
-    phone: '+919999575357',
-    name: 'Rahul (Meta Ads)',
-    leadSource: 'meta_ads',
-    utmSource: 'meta',
-    utmMedium: 'cpc',
-    utmCampaign: 'click_to_whatsapp_summer',
-    status: LeadStatus.INTERESTED,
-    tags: ['meta_ads', 'pricing'],
-    notes: 'Clicked Click-to-WhatsApp ad — asked pricing',
-    lastMessage: 'Price kya hai?',
-    sender: MessageSender.CONTACT,
-  },
-  {
-    phone: '+919873478572',
-    name: 'Priya (Google Ads)',
-    leadSource: 'google_ads',
-    utmSource: 'google',
-    utmMedium: 'cpc',
-    utmCampaign: 'brand_search_mumbai',
-    status: LeadStatus.NEW,
-    tags: ['google_ads'],
-    notes: 'Landed from Google ad with UTM',
-    lastMessage: 'Hello, I saw your ad on Google',
-    sender: MessageSender.CONTACT,
-  },
-  {
-    phone: '+9198888777666',
-    name: 'Amit (Meta Page)',
-    leadSource: 'meta_organic',
-    utmSource: 'meta',
-    utmMedium: 'social',
-    utmCampaign: 'facebook_page_dm',
-    status: LeadStatus.FOLLOW_UP,
-    tags: ['meta_organic'],
-    notes: 'Messaged from Facebook Page (organic)',
-    lastMessage: 'Is demo available this week?',
-    sender: MessageSender.CONTACT,
-  },
-  {
-    phone: '+9197777666555',
-    name: 'Sneha (WhatsApp organic)',
-    leadSource: 'whatsapp',
-    utmSource: 'whatsapp',
-    utmMedium: 'organic',
-    status: LeadStatus.NEW,
-    tags: ['organic'],
-    notes: 'Saved contact and messaged directly',
-    lastMessage: 'Hi, need more info',
-    sender: MessageSender.CONTACT,
-  },
-  {
-    phone: '+9196666555444',
-    name: 'Vikram (Campaign)',
-    leadSource: 'campaign',
-    utmSource: 'whatsapp',
-    utmMedium: 'broadcast',
-    utmCampaign: 'hello_world_may',
-    status: LeadStatus.CLOSED,
-    tags: ['campaign', 'template'],
-    notes: 'Received hello_world broadcast template',
-    lastMessage: 'Thanks for the message',
-    sender: MessageSender.CONTACT,
-  },
-];
-
-async function seedLead(workspaceId: string, lead: SeedLead, index: number) {
-  const contact = await prisma.contact.upsert({
-    where: {
-      workspaceId_phone: { workspaceId, phone: lead.phone },
-    },
-    update: {
-      name: lead.name,
-      leadSource: lead.leadSource,
-      utmSource: lead.utmSource,
-      utmMedium: lead.utmMedium ?? null,
-      utmCampaign: lead.utmCampaign ?? null,
-    },
-    create: {
-      workspaceId,
-      phone: lead.phone,
-      name: lead.name,
-      leadSource: lead.leadSource,
-      utmSource: lead.utmSource,
-      utmMedium: lead.utmMedium ?? null,
-      utmCampaign: lead.utmCampaign ?? null,
-    },
-  });
-
-  const conversationId = `seed-conv-${index}`;
-  const conversation = await prisma.conversation.upsert({
-    where: { id: conversationId },
-    update: {
-      contactId: contact.id,
-      lastMessageAt: new Date(),
-      lastSender: lead.sender,
-      unreadCount: lead.status === LeadStatus.CLOSED ? 0 : 1,
-    },
-    create: {
-      id: conversationId,
-      workspaceId,
-      contactId: contact.id,
-      lastMessageAt: new Date(),
-      lastSender: lead.sender,
-      unreadCount: lead.status === LeadStatus.CLOSED ? 0 : 1,
-    },
-  });
-
-  await prisma.message.deleteMany({ where: { conversationId: conversation.id } });
-  await prisma.message.createMany({
-    data: [
-      {
-        conversationId: conversation.id,
-        sender: lead.sender,
-        content: lead.lastMessage,
-        type: 'TEXT',
-      },
-      ...(lead.leadSource === 'meta_ads' && index === 0
-        ? [
-            {
-              conversationId: conversation.id,
-              sender: MessageSender.AI,
-              content:
-                'Sir pricing ₹25,000 se start hoti hai. Demo schedule karu?',
-              type: 'TEXT' as const,
-            },
-          ]
-        : []),
-    ],
-  });
-
-  await prisma.lead.upsert({
-    where: { contactId: contact.id },
-    update: {
-      status: lead.status,
-      tags: lead.tags,
-      notes: lead.notes,
-      lastInteractionAt: new Date(),
-    },
-    create: {
-      workspaceId,
-      contactId: contact.id,
-      status: lead.status,
-      tags: lead.tags,
-      notes: lead.notes,
-      lastInteractionAt: new Date(),
-    },
-  });
-
-  return contact;
-}
 
 async function main() {
   const passwordHash = await bcrypt.hash('password123', 12);
   const now = new Date();
 
-  const workspace = await prisma.workspace.upsert({
-    where: { id: 'seed-workspace' },
-    update: {
-      slug: 'demo-business',
-      webhookVerifyToken: 'your-webhook-verify-token',
-      whatsappPhoneNumberId: '1083340831535489',
-      ...MARKETING,
-      metaBusinessId: MARKETING.metaBusinessId,
-      metaConnectedAt: now,
-      googleConnectedAt: now,
-      businessName: 'Demo Business India',
-      aiEnabled: true,
-      aiSystemPrompt:
-        'You are a sales assistant for Demo Business India. Reply in Hinglish when customer uses Hindi. Pricing starts at ₹25,000. Offer to schedule a demo.',
-    },
-    create: {
-      id: 'seed-workspace',
-      name: 'Demo Business',
-      slug: 'demo-business',
-      businessName: 'Demo Business India',
-      whatsappPhoneNumberId: '1083340831535489',
-      webhookVerifyToken: 'your-webhook-verify-token',
-      ...MARKETING,
-      metaBusinessId: MARKETING.metaBusinessId,
-      metaConnectedAt: now,
-      googleConnectedAt: now,
-      aiEnabled: true,
-      aiSystemPrompt:
-        'You are a sales assistant for Demo Business India. Reply in Hinglish when customer uses Hindi. Pricing starts at ₹25,000. Offer to schedule a demo.',
-    },
-  });
+  console.log('Starting fresh database seeding...');
 
-  await prisma.user.upsert({
-    where: { email: 'admin@demo.com' },
-    update: { role: UserRole.ADMIN, workspaceId: workspace.id },
-    create: {
-      email: 'admin@demo.com',
-      passwordHash,
-      name: 'Admin User',
-      role: UserRole.ADMIN,
-      workspaceId: workspace.id,
-    },
-  });
-
+  // 1. Provision Platform Super Admin
   await prisma.user.upsert({
     where: { email: 'superadmin@platform.com' },
     update: { role: UserRole.SUPER_ADMIN, workspaceId: null },
@@ -245,39 +26,145 @@ async function main() {
       workspaceId: null,
     },
   });
+  console.log('Seeded Super Admin user: superadmin@platform.com');
 
-  await prisma.user.upsert({
-    where: { email: 'agent@demo.com' },
-    update: {},
+  // 2. Provision Workspace 1: Real Estate (Skyline Luxury Living)
+  const reConfig = VERTICAL_CONFIGS.REAL_ESTATE;
+  const reMarketing = getRandomMarketingData('REAL_ESTATE');
+
+  const reWorkspace = await prisma.workspace.upsert({
+    where: { id: 'seed-workspace-real-estate' },
+    update: {
+      slug: 'skyline-living',
+      businessName: 'Skyline Luxury Living',
+      businessType: 'REAL_ESTATE',
+      aiEnabled: true,
+      aiSystemPrompt: reConfig.aiSystemPrompt,
+      instagramUsername: reConfig.instagramUsername,
+      ...reMarketing,
+      updatedAt: now,
+    },
     create: {
-      email: 'agent@demo.com',
-      passwordHash,
-      name: 'Agent User',
-      role: UserRole.AGENT,
-      workspaceId: workspace.id,
+      id: 'seed-workspace-real-estate',
+      name: 'Skyline Luxury Living',
+      slug: 'skyline-living',
+      businessName: 'Skyline Luxury Living',
+      businessType: 'REAL_ESTATE',
+      aiEnabled: true,
+      aiSystemPrompt: reConfig.aiSystemPrompt,
+      instagramUsername: reConfig.instagramUsername,
+      ...reMarketing,
     },
   });
 
-  for (let i = 0; i < SEED_LEADS.length; i++) {
-    await seedLead(workspace.id, SEED_LEADS[i], i);
-  }
+  // Admin for Real Estate
+  await prisma.user.upsert({
+    where: { email: 'realestate@demo.com' },
+    update: { role: UserRole.ADMIN, workspaceId: reWorkspace.id },
+    create: {
+      email: 'realestate@demo.com',
+      passwordHash,
+      name: 'Real Estate Admin',
+      role: UserRole.ADMIN,
+      workspaceId: reWorkspace.id,
+    },
+  });
 
-  console.log('Seed complete:');
-  console.log('  Client: admin@demo.com / password123 → /login');
-  console.log('  Platform: superadmin@platform.com / password123 → /admin/login');
-  console.log('');
-  console.log('  Marketing accounts (dummy IDs on workspace):');
-  console.log(`    WhatsApp Phone ID: ${workspace.whatsappPhoneNumberId}`);
-  console.log(`    Meta Ads:          ${MARKETING.metaAdsAccountId}`);
-  console.log(`    Facebook Page:     ${MARKETING.metaPageId}`);
-  console.log(`    Google Ads:        ${MARKETING.googleAdsCustomerId}`);
-  console.log(`    Meta Pixel:        ${MARKETING.facebookPixelId}`);
-  console.log(`    Instagram:         @${MARKETING.instagramUsername}`);
-  console.log('');
-  console.log('  Sample leads by source:');
-  for (const l of SEED_LEADS) {
-    console.log(`    ${l.leadSource.padEnd(14)} ${l.phone} — ${l.name}`);
-  }
+  // Agent for Real Estate
+  await prisma.user.upsert({
+    where: { email: 'agent-re@demo.com' },
+    update: { role: UserRole.AGENT, workspaceId: reWorkspace.id },
+    create: {
+      email: 'agent-re@demo.com',
+      passwordHash,
+      name: 'RE Sales Agent',
+      role: UserRole.AGENT,
+      workspaceId: reWorkspace.id,
+    },
+  });
+
+  // Generate Real Estate Mock Data
+  // Clean up any existing data for this workspace first to avoid primary key collisions
+  await prisma.campaignRecipient.deleteMany({ where: { campaign: { workspaceId: reWorkspace.id } } });
+  await prisma.campaign.deleteMany({ where: { workspaceId: reWorkspace.id } });
+  await prisma.lead.deleteMany({ where: { workspaceId: reWorkspace.id } });
+  await prisma.message.deleteMany({ where: { conversation: { workspaceId: reWorkspace.id } } });
+  await prisma.conversation.deleteMany({ where: { workspaceId: reWorkspace.id } });
+  await prisma.contact.deleteMany({ where: { workspaceId: reWorkspace.id } });
+
+  await generateDummyData(prisma, reWorkspace.id, 'REAL_ESTATE');
+  console.log('Seeded Workspace 1: Skyline Luxury Living (Real Estate) -> realestate@demo.com');
+
+  // 3. Provision Workspace 2: Coaching Institutes (Apex Academy)
+  const coachConfig = VERTICAL_CONFIGS.COACHING;
+  const coachMarketing = getRandomMarketingData('COACHING');
+
+  const coachWorkspace = await prisma.workspace.upsert({
+    where: { id: 'seed-workspace-coaching' },
+    update: {
+      slug: 'apex-academy',
+      businessName: 'Apex Academy',
+      businessType: 'COACHING',
+      aiEnabled: true,
+      aiSystemPrompt: coachConfig.aiSystemPrompt,
+      instagramUsername: coachConfig.instagramUsername,
+      ...coachMarketing,
+      updatedAt: now,
+    },
+    create: {
+      id: 'seed-workspace-coaching',
+      name: 'Apex Academy',
+      slug: 'apex-academy',
+      businessName: 'Apex Academy',
+      businessType: 'COACHING',
+      aiEnabled: true,
+      aiSystemPrompt: coachConfig.aiSystemPrompt,
+      instagramUsername: coachConfig.instagramUsername,
+      ...coachMarketing,
+    },
+  });
+
+  // Admin for Coaching
+  await prisma.user.upsert({
+    where: { email: 'coaching@demo.com' },
+    update: { role: UserRole.ADMIN, workspaceId: coachWorkspace.id },
+    create: {
+      email: 'coaching@demo.com',
+      passwordHash,
+      name: 'Apex Academy Admin',
+      role: UserRole.ADMIN,
+      workspaceId: coachWorkspace.id,
+    },
+  });
+
+  // Agent for Coaching
+  await prisma.user.upsert({
+    where: { email: 'agent-coach@demo.com' },
+    update: { role: UserRole.AGENT, workspaceId: coachWorkspace.id },
+    create: {
+      email: 'agent-coach@demo.com',
+      passwordHash,
+      name: 'Coach Counselor',
+      role: UserRole.AGENT,
+      workspaceId: coachWorkspace.id,
+    },
+  });
+
+  // Generate Coaching Mock Data
+  await prisma.campaignRecipient.deleteMany({ where: { campaign: { workspaceId: coachWorkspace.id } } });
+  await prisma.campaign.deleteMany({ where: { workspaceId: coachWorkspace.id } });
+  await prisma.lead.deleteMany({ where: { workspaceId: coachWorkspace.id } });
+  await prisma.message.deleteMany({ where: { conversation: { workspaceId: coachWorkspace.id } } });
+  await prisma.conversation.deleteMany({ where: { workspaceId: coachWorkspace.id } });
+  await prisma.contact.deleteMany({ where: { workspaceId: coachWorkspace.id } });
+
+  await generateDummyData(prisma, coachWorkspace.id, 'COACHING');
+  console.log('Seeded Workspace 2: Apex Academy (Coaching) -> coaching@demo.com');
+
+  console.log('\nSeed complete!');
+  console.log('  Platform Super Admin:  superadmin@platform.com / password123 -> /admin/login');
+  console.log('  Real Estate Admin:     realestate@demo.com / password123 -> /login');
+  console.log('  Coaching Admin:        coaching@demo.com / password123 -> /login');
 }
 
 main()
