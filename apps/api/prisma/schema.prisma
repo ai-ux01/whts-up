@@ -75,7 +75,9 @@ model Workspace {
   aiEnabled             Boolean  @default(false)
   aiSystemPrompt        String?
   businessName          String?
+  businessType          String?
   metaAdsAccountId      String?
+
   metaPageId            String?
   googleAdsCustomerId   String?
   facebookPixelId       String?

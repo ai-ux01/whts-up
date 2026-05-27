@@ -19,4 +19,9 @@ export class CreateClientWorkspaceDto {
   @IsOptional()
   @IsString()
   businessName?: string;
+
+  @IsOptional()
+  @IsString()
+  businessType?: string;
 }
+

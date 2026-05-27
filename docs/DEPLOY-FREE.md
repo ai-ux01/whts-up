@@ -22,9 +22,12 @@ Stack: **$0/month** for demos and low traffic (with cold starts on Render).
 3. Local: paste both into `apps/api/.env`, then:
 
 ```bash
+pnpm install
 pnpm --filter api exec prisma migrate deploy
 pnpm db:seed
 ```
+
+If `prisma not found`, run `pnpm install`. `db:seed` runs `prisma generate` automatically.
 
 4. Render: set both `DATABASE_URL` and `DIRECT_URL` in environment variables.
 

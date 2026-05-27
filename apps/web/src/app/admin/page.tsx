@@ -24,6 +24,19 @@ interface ClientWorkspace {
   };
   adminUser: { email: string; name: string } | null;
   webhookUrl: string | null;
+  businessType?: string;
+}
+
+function formatBusinessType(type?: string) {
+  if (!type) return '';
+  switch (type) {
+    case 'REAL_ESTATE': return 'Real Estate';
+    case 'COACHING': return 'Coaching Institutes';
+    case 'CLINIC': return 'Clinics';
+    case 'SOLAR': return 'Solar Businesses';
+    case 'CAR_DEALERSHIP': return 'Car Dealerships';
+    default: return type.replace('_', ' ');
+  }
 }
 
 export default function AdminDashboardPage() {
@@ -72,7 +85,14 @@ export default function AdminDashboardPage() {
             <CardHeader className="pb-2">
               <div className="flex items-start justify-between gap-4">
                 <div>
-                  <CardTitle className="text-lg">{w.name}</CardTitle>
+                  <CardTitle className="text-lg flex items-center gap-2">
+                    {w.name}
+                    {w.businessType && (
+                      <Badge variant="outline" className="bg-primary/10 text-primary border-primary/20 hover:bg-primary/20 text-xs font-normal">
+                        {formatBusinessType(w.businessType)}
+                      </Badge>
+                    )}
+                  </CardTitle>
                   <p className="text-sm text-muted-foreground">
                     {w.slug} · admin: {w.adminUser?.email ?? '—'}
                   </p>

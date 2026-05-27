@@ -10,6 +10,12 @@ import { PrismaService } from '../prisma/prisma.service';
 import { slugifyWorkspaceName } from '../common/utils/slug';
 import { CreateClientWorkspaceDto } from './dto/create-client-workspace.dto';
 import { UpdateWorkspaceDto } from './dto/update-workspace.dto';
+import {
+  generateDummyData,
+  getRandomMarketingData,
+  VERTICAL_CONFIGS,
+} from './utils/dummy-data-generator';
+
 
 @Injectable()
 export class PlatformService {
@@ -60,6 +66,7 @@ export class PlatformService {
       counts: w._count,
       adminUser: w.users[0] ?? null,
       clientLoginUrl: '/login',
+      businessType: w.businessType,
       webhookUrl: webhookBase
         ? `${webhookBase}/api/v1/whatsapp/webhook`
         : null,
@@ -107,12 +114,30 @@ export class PlatformService {
       this.config.get<string>('WHATSAPP_VERIFY_TOKEN')?.trim() ||
       `verify-${slug}`;
 
+    let aiEnabled = false;
+    let aiSystemPrompt: string | null = null;
+    let instagramUsername: string | null = null;
+    let marketingData = {};
+
+    if (dto.businessType && VERTICAL_CONFIGS[dto.businessType]) {
+      const config = VERTICAL_CONFIGS[dto.businessType];
+      aiEnabled = true;
+      aiSystemPrompt = config.aiSystemPrompt;
+      instagramUsername = config.instagramUsername;
+      marketingData = getRandomMarketingData(dto.businessType);
+    }
+
     const workspace = await this.prisma.workspace.create({
       data: {
         name: dto.workspaceName,
         slug,
         businessName: dto.businessName || dto.workspaceName,
+        businessType: dto.businessType || null,
         webhookVerifyToken: verifyToken,
+        aiEnabled,
+        aiSystemPrompt,
+        instagramUsername,
+        ...marketingData,
         users: {
           create: {
             email: dto.adminEmail,
@@ -124,6 +149,10 @@ export class PlatformService {
       },
       include: { users: true },
     });
+
+    if (dto.businessType && VERTICAL_CONFIGS[dto.businessType]) {
+      await generateDummyData(this.prisma, workspace.id, dto.businessType);
+    }
 
     const webhookBase =
       this.config.get<string>('PUBLIC_WEBHOOK_BASE_URL')?.trim() || null;

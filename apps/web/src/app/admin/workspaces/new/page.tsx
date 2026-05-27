@@ -42,6 +42,7 @@ export default function NewClientWorkspacePage() {
       adminEmail: form.get('adminEmail') as string,
       adminPassword: form.get('adminPassword') as string,
       businessName: (form.get('businessName') as string) || undefined,
+      businessType: (form.get('businessType') as string) || undefined,
     } as Record<string, string>);
   }
 
@@ -68,6 +69,23 @@ export default function NewClientWorkspacePage() {
             <div className="space-y-2">
               <Label>Business name (optional)</Label>
               <Input name="businessName" placeholder="Acme Corp India" />
+            </div>
+            <div className="space-y-2">
+              <Label>Business Template / Vertical (Optional)</Label>
+              <select
+                name="businessType"
+                className="flex h-10 w-full rounded-lg border border-border bg-card px-3 py-2 text-sm text-foreground ring-offset-background focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
+              >
+                <option value="" className="bg-card text-foreground">Blank Workspace (No dummy data)</option>
+                <option value="REAL_ESTATE" className="bg-card text-foreground">Real Estate Preset (Enquiries, site visits, agents)</option>
+                <option value="COACHING" className="bg-card text-foreground">Coaching Institutes Preset (NEET/JEE classes, counselor chat)</option>
+                <option value="CLINIC" className="bg-card text-foreground">Clinics Preset (Doctor schedules, patient appointments)</option>
+                <option value="SOLAR" className="bg-card text-foreground">Solar Businesses Preset (Subsidy estimates, roof audits)</option>
+                <option value="CAR_DEALERSHIP" className="bg-card text-foreground">Car Dealership Preset (Test drives, exchange offers)</option>
+              </select>
+              <p className="text-xs text-muted-foreground">
+                Choosing a template automatically seeds customized AI system prompts, marketing campaigns, contact groups, and realistic lead conversations.
+              </p>
             </div>
             <div className="space-y-2">
               <Label>Admin full name</Label>
