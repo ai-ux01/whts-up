@@ -464,10 +464,10 @@ For each scene, return a scene text narration (Hinglish/English), duration (4-6s
       const seeded = await this.prisma.socialAccount.findMany({
         where: { workspaceId }
       });
-      return seeded.map((acc) => ({ ...acc, accessToken: acc.accessToken ? '******' : null }));
+      return seeded.map((acc: any) => ({ ...acc, accessToken: acc.accessToken ? '******' : null }));
     }
 
-    return accounts.map((acc) => ({ ...acc, accessToken: acc.accessToken ? '******' : null }));
+    return accounts.map((acc: any) => ({ ...acc, accessToken: acc.accessToken ? '******' : null }));
   }
 
   async connectSocialAccount(workspaceId: string, data: {
