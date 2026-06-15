@@ -25,4 +25,18 @@ export class AutomationController {
   create(@CurrentUser() user: AuthUser, @Body() dto: CreateAutomationDto) {
     return this.automationService.create(requireWorkspaceId(user), dto);
   }
+
+  @Post('trigger-service-completed')
+  triggerServiceCompleted(
+    @CurrentUser() user: AuthUser,
+    @Body() dto: { contactId: string; customerPhone: string; customerName: string },
+  ) {
+    const workspaceId = requireWorkspaceId(user);
+    return this.automationService.handleServiceCompleted(
+      workspaceId,
+      dto.contactId,
+      dto.customerPhone,
+      dto.customerName,
+    );
+  }
 }

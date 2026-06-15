@@ -1,4 +1,5 @@
-import { Controller, Get, Post, Delete, Body, Query, UseGuards, Param, Patch } from '@nestjs/common';
+import { Controller, Get, Post, Delete, Body, Query, UseGuards, Param, Patch, UseInterceptors, UploadedFile } from '@nestjs/common';
+import { FileInterceptor } from '@nestjs/platform-express';
 import { JwtAuthGuard } from '../auth/jwt-auth.guard';
 import { ClientUserGuard } from '../common/guards/client-user.guard';
 import { CurrentUser } from '../common/decorators/current-user.decorator';
@@ -68,8 +69,18 @@ export class ContentController {
   }
 
   @Post('media')
-  uploadMediaAsset(@CurrentUser() user: AuthUser, @Body() body: { name: string; url: string; type: string; size?: number; folder?: string }) {
-    return this.contentService.uploadMediaAsset(requireWorkspaceId(user), body);
+  @UseInterceptors(FileInterceptor('file'))
+  uploadMediaAsset(
+    @CurrentUser() user: AuthUser,
+    @UploadedFile() file?: any,
+    @Body() body?: { name?: string; url?: string; type?: string; size?: number; folder?: string }
+  ) {
+    const workspaceId = requireWorkspaceId(user);
+    if (file) {
+      const folder = body?.folder || 'General';
+      return this.contentService.uploadMediaAsset(workspaceId, file, folder);
+    }
+    return this.contentService.uploadMediaAsset(workspaceId, body);
   }
 
   @Delete('media/:id')

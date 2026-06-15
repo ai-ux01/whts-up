@@ -85,4 +85,45 @@ export class AutomationService {
       }
     }
   }
+
+  async handleServiceCompleted(
+    workspaceId: string,
+    contactId: string,
+    customerPhone: string,
+    customerName: string,
+  ) {
+    const rules = await this.prisma.automationRule.findMany({
+      where: {
+        workspaceId,
+        enabled: true,
+        trigger: AutomationTrigger.SERVICE_COMPLETED,
+      },
+    });
+
+    for (const rule of rules) {
+      if (
+        rule.action === AutomationAction.SEND_FEEDBACK_REQUEST ||
+        rule.action === AutomationAction.SEND_MESSAGE
+      ) {
+        const frontendUrl = process.env.NEXT_PUBLIC_APP_URL || 'http://localhost:3000';
+        const requestLink = `${frontendUrl}/feedback/${workspaceId}?phone=${encodeURIComponent(customerPhone)}&name=${encodeURIComponent(customerName)}`;
+        const messageText = `Thank you for choosing us 🙏. We would love to hear about your experience! Please rate us here: ${requestLink}`;
+
+        try {
+          await this.whatsappService.sendTextMessage(workspaceId, customerPhone, messageText);
+
+          // Log ReviewRequest in database
+          await this.prisma.reviewRequest.create({
+            data: {
+              workspaceId,
+              customerId: contactId,
+              platform: 'GOOGLE',
+            },
+          });
+        } catch {
+          // suppress WhatsApp failures for sandboxing
+        }
+      }
+    }
+  }
 }

@@ -161,10 +161,56 @@ async function main() {
   await generateDummyData(prisma, coachWorkspace.id, 'COACHING');
   console.log('Seeded Workspace 2: Apex Academy (Coaching) -> coaching@demo.com');
 
+  // 4. Provision Workspace 3: Avisoft Technologies (IT & Custom Software)
+  const aviPasswordHash = await bcrypt.hash('Sales@Avi1', 12);
+  const aviWorkspace = await prisma.workspace.upsert({
+    where: { id: 'seed-workspace-avisoft' },
+    update: {
+      slug: 'avisoft',
+      businessName: 'Avisoft Technologies',
+      businessType: 'IT_SERVICES',
+      aiEnabled: true,
+      updatedAt: now,
+    },
+    create: {
+      id: 'seed-workspace-avisoft',
+      name: 'Avisoft Technologies',
+      slug: 'avisoft',
+      businessName: 'Avisoft Technologies',
+      businessType: 'IT_SERVICES',
+      aiEnabled: true,
+    },
+  });
+
+  // Admin for Avisoft
+  await prisma.user.upsert({
+    where: { email: 'sales@avisoft.in' },
+    update: { role: UserRole.ADMIN, workspaceId: aviWorkspace.id, passwordHash: aviPasswordHash },
+    create: {
+      email: 'sales@avisoft.in',
+      passwordHash: aviPasswordHash,
+      name: 'Avisoft Admin',
+      role: UserRole.ADMIN,
+      workspaceId: aviWorkspace.id,
+    },
+  });
+
+  // Generate Avisoft Mock Data
+  await prisma.campaignRecipient.deleteMany({ where: { campaign: { workspaceId: aviWorkspace.id } } });
+  await prisma.campaign.deleteMany({ where: { workspaceId: aviWorkspace.id } });
+  await prisma.lead.deleteMany({ where: { workspaceId: aviWorkspace.id } });
+  await prisma.message.deleteMany({ where: { conversation: { workspaceId: aviWorkspace.id } } });
+  await prisma.conversation.deleteMany({ where: { workspaceId: aviWorkspace.id } });
+  await prisma.contact.deleteMany({ where: { workspaceId: aviWorkspace.id } });
+
+  await generateDummyData(prisma, aviWorkspace.id, 'REAL_ESTATE');
+  console.log('Seeded Workspace 3: Avisoft Technologies -> sales@avisoft.in');
+
   console.log('\nSeed complete!');
   console.log('  Platform Super Admin:  superadmin@platform.com / password123 -> /admin/login');
   console.log('  Real Estate Admin:     realestate@demo.com / password123 -> /login');
   console.log('  Coaching Admin:        coaching@demo.com / password123 -> /login');
+  console.log('  Avisoft Admin:         sales@avisoft.in / Sales@Avi1 -> /login');
 }
 
 main()

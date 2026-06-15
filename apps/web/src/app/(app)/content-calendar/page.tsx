@@ -252,6 +252,14 @@ export default function ContentCalendarPage() {
                         type="datetime-local"
                         value={newDate}
                         onChange={(e) => setNewDate(e.target.value)}
+                        onClick={(e) => {
+                          try {
+                            e.currentTarget.showPicker();
+                          } catch (err) {
+                            // fallback
+                          }
+                        }}
+                        className="cursor-pointer"
                         required
                       />
                     </div>

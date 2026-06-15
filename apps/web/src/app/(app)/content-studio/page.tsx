@@ -1,6 +1,6 @@
 'use client';
 
-import { useState } from 'react';
+import { useState, useRef } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { toast } from 'sonner';
 import { api } from '@/lib/api-client';
@@ -9,7 +9,27 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
 import { Textarea } from '@/components/ui/textarea';
-import { Sparkles, Palette, FileText, Check, Copy, Flame, Lightbulb, Compass, Share2 } from 'lucide-react';
+import { 
+  Sparkles, 
+  Palette, 
+  FileText, 
+  Check, 
+  Copy, 
+  Flame, 
+  Lightbulb, 
+  Compass, 
+  Share2, 
+  TrendingUp, 
+  Zap, 
+  Briefcase, 
+  Activity, 
+  Award, 
+  BookOpen, 
+  Search, 
+  Trash, 
+  RefreshCw,
+  Upload
+} from 'lucide-react';
 
 interface BrandKit {
   logoUrl: string | null;
@@ -28,9 +48,38 @@ interface ContentIdea {
   type: string;
 }
 
+interface ViralHook {
+  hook: string;
+  type: string;
+  ctrPower: number;
+  executionTips: string;
+}
+
+interface CompetitorGap {
+  weakness: string;
+  opportunity: string;
+  scriptAngle: string;
+}
+
+interface SearchTrend {
+  query: string;
+  angle: string;
+  keywords: string[];
+}
+
+interface ResearchReport {
+  id: string;
+  topic: string;
+  niche: string;
+  viralHooks: ViralHook[];
+  competitors: CompetitorGap[];
+  trends: SearchTrend[];
+  createdAt: string;
+}
+
 export default function ContentStudioPage() {
   const queryClient = useQueryClient();
-  const [activeTab, setActiveTab] = useState<'copy' | 'ideas' | 'brand'>('copy');
+  const [activeTab, setActiveTab] = useState<'copy' | 'research' | 'ideas' | 'brand'>('copy');
   const [copied, setCopied] = useState(false);
 
   // Copywriting Form State
@@ -48,6 +97,46 @@ export default function ContentStudioPage() {
   const [secondaryColor, setSecondaryColor] = useState('#14532d');
   const [brandVoice, setBrandVoice] = useState('Hinglish-Casual');
   const [ctaTemplate, setCtaTemplate] = useState("DM us 'START' to learn more!");
+  const [logoUrl, setLogoUrl] = useState<string | null>(null);
+  const logoInputRef = useRef<HTMLInputElement>(null);
+
+  const handleLogoUploadClick = () => {
+    logoInputRef.current?.click();
+  };
+
+  const handleLogoFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const files = e.target.files;
+    if (!files || files.length === 0) return;
+
+    const file = files[0];
+    const formData = new FormData();
+    formData.append('file', file);
+    formData.append('folder', 'Brand');
+
+    const toastId = toast.loading(`Uploading brand logo "${file.name}"...`);
+
+    try {
+      const uploadedAsset = await api<{ url: string }>('/content/media', {
+        method: 'POST',
+        body: formData,
+      });
+      toast.dismiss(toastId);
+      setLogoUrl(uploadedAsset.url);
+      toast.success('Brand logo uploaded successfully!');
+    } catch (err: unknown) {
+      toast.dismiss(toastId);
+      const errorMsg = err instanceof Error ? err.message : 'Logo upload failed';
+      toast.error(errorMsg);
+    } finally {
+      if (logoInputRef.current) logoInputRef.current.value = '';
+    }
+  };
+
+  // Research State
+  const [researchTopic, setResearchTopic] = useState('');
+  const [researchNiche, setResearchNiche] = useState('Real Estate');
+  const [activeReport, setActiveReport] = useState<ResearchReport | null>(null);
+  const [activeResearchTab, setActiveResearchTab] = useState<'hooks' | 'gaps' | 'trends'>('hooks');
 
   // Fetch Brand Kit Query
   const { data: brandKit } = useQuery<BrandKit>({
@@ -55,13 +144,20 @@ export default function ContentStudioPage() {
     queryFn: async () => {
       const data = await api<BrandKit>('/content/brand-kit');
       if (data) {
-        setPrimaryColor(data.primaryColor);
-        setSecondaryColor(data.secondaryColor);
-        setBrandVoice(data.brandVoice);
-        setCtaTemplate(data.ctaTemplate);
+        setPrimaryColor(data.primaryColor || '#16a34a');
+        setSecondaryColor(data.secondaryColor || '#14532d');
+        setBrandVoice(data.brandVoice || 'Professional');
+        setCtaTemplate(data.ctaTemplate || '');
+        setLogoUrl(data.logoUrl || null);
       }
       return data;
     }
+  });
+
+  // Fetch Historical Research Query
+  const { data: history = [], isLoading: isHistoryLoading } = useQuery<ResearchReport[]>({
+    queryKey: ['research-history'],
+    queryFn: () => api<ResearchReport[]>('/content/research'),
   });
 
   // Generate Copy Mutation
@@ -93,7 +189,7 @@ export default function ContentStudioPage() {
 
   // Update Brand Kit Mutation
   const updateBrandMutation = useMutation({
-    mutationFn: (body: { primaryColor: string; secondaryColor: string; brandVoice: string; ctaTemplate: string }) =>
+    mutationFn: (body: { logoUrl: string | null; primaryColor: string; secondaryColor: string; brandVoice: string; ctaTemplate: string }) =>
       api<BrandKit>('/content/brand-kit', {
         method: 'PATCH',
         body: JSON.stringify(body),
@@ -104,6 +200,52 @@ export default function ContentStudioPage() {
     },
     onError: (e: { message?: string }) => toast.error(e.message || 'Saving failed'),
   });
+
+  // Generate Research Mutation
+  const generateResearchMutation = useMutation({
+    mutationFn: (body: { topic: string; niche: string }) =>
+      api<ResearchReport>('/content/research', {
+        method: 'POST',
+        body: JSON.stringify(body),
+      }),
+    onSuccess: (data) => {
+      queryClient.invalidateQueries({ queryKey: ['research-history'] });
+      setActiveReport(data);
+      setActiveResearchTab('hooks');
+      setResearchTopic('');
+      toast.success('AI Growth Trends successfully analyzed and locked!');
+    },
+    onError: (e: { message?: string }) => toast.error(e.message || 'Research compilation failed'),
+  });
+
+  // Delete Research Mutation
+  const deleteResearchMutation = useMutation({
+    mutationFn: (id: string) =>
+      api<unknown>(`/content/research/${id}`, {
+        method: 'DELETE',
+      }),
+    onSuccess: (_, deletedId) => {
+      queryClient.invalidateQueries({ queryKey: ['research-history'] });
+      if (activeReport?.id === deletedId) {
+        setActiveReport(null);
+      }
+      toast.success('Research entry removed.');
+    },
+    onError: (e: { message?: string }) => toast.error(e.message || 'Deletion failed'),
+  });
+
+  const selectReport = (report: ResearchReport) => {
+    setActiveReport(report);
+    setActiveResearchTab('hooks');
+  };
+
+  const getPowerColor = (power: number) => {
+    if (power >= 95) return 'from-rose-500 to-amber-500';
+    if (power >= 90) return 'from-amber-500 to-emerald-500';
+    return 'from-emerald-500 to-teal-500';
+  };
+
+  const currentReport = activeReport || (history.length > 0 ? history[0] : null);
 
   const handleCopy = () => {
     navigator.clipboard.writeText(generatedResult);
@@ -119,7 +261,7 @@ export default function ContentStudioPage() {
           AI Content Studio
         </h1>
         <p className="text-muted-foreground mt-1">
-          Generate high-converting copies, viral hooks, reels script outlines, and custom brand assets in Hinglish.
+          Generate high-converting copies, viral hooks, competitor gap research, and custom brand assets in Hinglish.
         </p>
       </div>
 
@@ -135,6 +277,17 @@ export default function ContentStudioPage() {
         >
           <FileText className="h-4 w-4" />
           AI Copywriting Suite
+        </button>
+        <button
+          onClick={() => setActiveTab('research')}
+          className={`flex items-center gap-2 px-4 py-2 text-sm font-medium border-b-2 transition-all ${
+            activeTab === 'research'
+              ? 'border-primary text-primary'
+              : 'border-transparent text-muted-foreground hover:text-foreground'
+          }`}
+        >
+          <TrendingUp className="h-4 w-4" />
+          AI Research Engine
         </button>
         <button
           onClick={() => setActiveTab('ideas')}
@@ -264,6 +417,269 @@ export default function ContentStudioPage() {
         </div>
       )}
 
+      {/* TAB CONTENT: AI RESEARCH ENGINE */}
+      {activeTab === 'research' && (
+        <div className="grid gap-6 md:grid-cols-12 items-start">
+          {/* Research controls */}
+          <div className="md:col-span-4 space-y-4">
+            <Card className="border-border shadow-sm">
+              <CardHeader>
+                <CardTitle className="text-lg flex items-center gap-2">
+                  <TrendingUp className="h-5 w-5 text-primary" />
+                  Launch Trend Miner
+                </CardTitle>
+                <CardDescription>Configure AI searches to scan niche keywords.</CardDescription>
+              </CardHeader>
+              <CardContent className="space-y-4">
+                <div className="space-y-1.5">
+                  <Label>Research Niche / Vertical</Label>
+                  <select
+                    value={researchNiche}
+                    onChange={(e) => setResearchNiche(e.target.value)}
+                    className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
+                  >
+                    <option value="Real Estate">Real Estate Presets</option>
+                    <option value="Coaching Center">Coaching Center / JEE-NEET classes</option>
+                    <option value="Dental Clinic">Dental / Health Clinic</option>
+                    <option value="Solar Rooftops">Solar panel / Renewable energy</option>
+                    <option value="Car Dealerships">Premium Car Dealerships</option>
+                  </select>
+                </div>
+
+                <div className="space-y-1.5">
+                  <Label>Research Topic / Competitor Keyword</Label>
+                  <Input
+                    value={researchTopic}
+                    onChange={(e) => setResearchTopic(e.target.value)}
+                    placeholder="e.g. ROI of solar, luxury penthouse tour"
+                    required
+                  />
+                </div>
+
+                <Button
+                  onClick={() => generateResearchMutation.mutate({ topic: researchTopic, niche: researchNiche })}
+                  disabled={generateResearchMutation.isPending || !researchTopic}
+                  className="w-full gap-2 mt-2"
+                >
+                  {generateResearchMutation.isPending ? (
+                    <>
+                      <RefreshCw className="h-4 w-4 animate-spin" />
+                      Mining trends...
+                    </>
+                  ) : (
+                    <>
+                      <Sparkles className="h-4 w-4" />
+                      Extract Growth Report
+                    </>
+                  )}
+                </Button>
+              </CardContent>
+            </Card>
+
+            {/* History logs */}
+            <Card className="border-border shadow-sm">
+              <CardHeader className="pb-3 border-b">
+                <CardTitle className="text-sm font-semibold">Historical Research Logs</CardTitle>
+              </CardHeader>
+              <CardContent className="p-0 max-h-[220px] overflow-auto">
+                <div className="divide-y divide-border">
+                  {history.map((h) => (
+                    <div
+                      key={h.id}
+                      className={`w-full p-3 text-xs flex justify-between items-center transition-colors hover:bg-muted/50 ${
+                        currentReport?.id === h.id ? 'bg-muted/70 font-semibold border-l-4 border-primary' : ''
+                      }`}
+                    >
+                      <button
+                        onClick={() => selectReport(h)}
+                        className="flex-1 text-left truncate mr-2"
+                      >
+                        <p className="font-bold text-foreground truncate">{h.topic}</p>
+                        <p className="text-[9px] text-muted-foreground mt-0.5 uppercase tracking-wide">{h.niche}</p>
+                      </button>
+                      <button
+                        onClick={() => deleteResearchMutation.mutate(h.id)}
+                        disabled={deleteResearchMutation.isPending}
+                        className="p-1 rounded text-muted-foreground hover:text-destructive hover:bg-destructive/10 transition-colors"
+                      >
+                        <Trash className="h-3 w-3" />
+                      </button>
+                    </div>
+                  ))}
+                  {history.length === 0 && !isHistoryLoading && (
+                    <p className="text-muted-foreground p-4 text-[11px] text-center italic">No searches conducted yet.</p>
+                  )}
+                </div>
+              </CardContent>
+            </Card>
+          </div>
+
+          {/* Research visualizations */}
+          <div className="md:col-span-8">
+            {currentReport ? (
+              <div className="space-y-6">
+                {/* Header Tab Panel */}
+                <div className="flex gap-2 border-b border-border pb-px">
+                  <button
+                    onClick={() => setActiveResearchTab('hooks')}
+                    className={`flex items-center gap-2 px-4 py-2 text-xs font-semibold border-b-2 transition-all ${
+                      activeResearchTab === 'hooks'
+                        ? 'border-primary text-primary'
+                        : 'border-transparent text-muted-foreground hover:text-foreground'
+                    }`}
+                  >
+                    <Zap className="h-3.5 w-3.5" />
+                    Viral Video Hooks
+                  </button>
+                  <button
+                    onClick={() => setActiveResearchTab('gaps')}
+                    className={`flex items-center gap-2 px-4 py-2 text-xs font-semibold border-b-2 transition-all ${
+                      activeResearchTab === 'gaps'
+                        ? 'border-primary text-primary'
+                        : 'border-transparent text-muted-foreground hover:text-foreground'
+                    }`}
+                  >
+                    <Briefcase className="h-3.5 w-3.5" />
+                    Competitor Gaps
+                  </button>
+                  <button
+                    onClick={() => setActiveResearchTab('trends')}
+                    className={`flex items-center gap-2 px-4 py-2 text-xs font-semibold border-b-2 transition-all ${
+                      activeResearchTab === 'trends'
+                        ? 'border-primary text-primary'
+                        : 'border-transparent text-muted-foreground hover:text-foreground'
+                    }`}
+                  >
+                    <Activity className="h-3.5 w-3.5" />
+                    Trending Search Queries
+                  </button>
+                </div>
+
+                {/* TAB CONTENT: VIRAL HOOKS */}
+                {activeResearchTab === 'hooks' && (
+                  <div className="grid gap-4">
+                    {currentReport.viralHooks.map((vh, idx) => (
+                      <Card key={idx} className="border-border hover:shadow transition-shadow relative overflow-hidden bg-card flex flex-col justify-between">
+                        <div className="absolute top-0 right-0 w-28 h-28 bg-primary/5 rounded-bl-full flex items-center justify-center pointer-events-none">
+                          <span className="text-[9px] font-bold text-primary mr-[-12px] mt-[-12px] uppercase tracking-wider">Hook #{idx+1}</span>
+                        </div>
+                        <CardContent className="p-4 space-y-3">
+                          <div className="flex gap-2 items-center">
+                            <span className="px-2 py-0.5 bg-primary/10 text-primary text-[9px] font-extrabold rounded-full uppercase">
+                              {vh.type}
+                            </span>
+                          </div>
+
+                          <p className="text-sm font-extrabold text-foreground pr-8 leading-snug">
+                            &quot;{vh.hook}&quot;
+                          </p>
+
+                          <div className="pt-3 border-t border-border flex flex-col md:flex-row md:items-center justify-between gap-3">
+                            <div className="space-y-0.5 max-w-md">
+                              <h5 className="text-[9px] text-muted-foreground font-bold uppercase tracking-wider flex items-center gap-1">
+                                <BookOpen className="h-2.5 w-2.5 text-primary" /> Visual Presentation Guide
+                              </h5>
+                              <p className="text-[11px] text-muted-foreground leading-relaxed">{vh.executionTips}</p>
+                            </div>
+
+                            <div className="flex items-center gap-2 shrink-0 bg-muted/40 p-2 rounded border">
+                              <Award className="h-3.5 w-3.5 text-amber-500 animate-pulse" />
+                              <div className="text-right">
+                                <p className="text-[8px] text-muted-foreground font-bold uppercase tracking-wider">CTR Power</p>
+                                <p className={`text-xs font-black bg-gradient-to-r bg-clip-text text-transparent ${getPowerColor(vh.ctrPower)}`}>
+                                  {vh.ctrPower}%
+                                </p>
+                              </div>
+                            </div>
+                          </div>
+                        </CardContent>
+                      </Card>
+                    ))}
+                  </div>
+                )}
+
+                {/* TAB CONTENT: COMPETITOR GAPS */}
+                {activeResearchTab === 'gaps' && (
+                  <div className="grid gap-4 md:grid-cols-2">
+                    {currentReport.competitors.map((comp, idx) => (
+                      <Card key={idx} className="border-border hover:shadow transition-shadow flex flex-col justify-between h-full bg-card">
+                        <CardHeader className="border-b bg-muted/10 py-2.5 px-3 flex flex-row items-center gap-1.5">
+                          <Zap className="h-3.5 w-3.5 text-primary" />
+                          <CardTitle className="text-xs font-bold">Angle of Attack #{idx+1}</CardTitle>
+                        </CardHeader>
+                        <CardContent className="p-3.5 space-y-3 text-xs flex-1 flex flex-col justify-between">
+                          <div className="space-y-1">
+                            <p className="text-red-500 font-bold uppercase tracking-wider text-[9px]">❌ Competitor Weakness</p>
+                            <p className="text-muted-foreground leading-relaxed font-medium">{comp.weakness}</p>
+                          </div>
+
+                          <div className="space-y-1 pt-2.5 border-t border-border">
+                            <p className="text-emerald-500 font-bold uppercase tracking-wider text-[9px]">✅ Our Opportunity</p>
+                            <p className="text-foreground leading-relaxed font-semibold">{comp.opportunity}</p>
+                          </div>
+
+                          <div className="pt-2.5 border-t border-border space-y-0.5 flex items-start gap-1.5 bg-primary/5 p-1.5 rounded border border-primary/10">
+                            <Lightbulb className="h-3.5 w-3.5 text-amber-500 shrink-0 mt-0.5" />
+                            <div>
+                              <p className="text-[9px] text-muted-foreground font-bold uppercase tracking-wider">Subtitles Hook Strategy</p>
+                              <p className="text-muted-foreground mt-0.5 leading-relaxed italic">{comp.scriptAngle}</p>
+                            </div>
+                          </div>
+                        </CardContent>
+                      </Card>
+                    ))}
+                  </div>
+                )}
+
+                {/* TAB CONTENT: TRENDS & INSPIRATIONS */}
+                {activeResearchTab === 'trends' && (
+                  <div className="grid gap-3">
+                    {currentReport.trends.map((t, idx) => (
+                      <Card key={idx} className="border-border hover:shadow transition-shadow bg-card">
+                        <CardContent className="p-4 space-y-3">
+                          <div className="flex justify-between items-start gap-3 flex-col md:flex-row">
+                            <div className="space-y-0.5">
+                              <h4 className="text-sm font-extrabold text-foreground flex items-center gap-1.5 pr-4">
+                                <Search className="h-3.5 w-3.5 text-primary shrink-0" />
+                                &quot;{t.query}&quot;
+                              </h4>
+                              <p className="text-[11px] text-muted-foreground leading-relaxed pt-1 pr-2">
+                                {t.angle}
+                              </p>
+                            </div>
+
+                            <div className="flex flex-wrap gap-1 shrink-0 max-w-[160px]">
+                              {t.keywords.map((kw, kIdx) => (
+                                <span
+                                  key={kIdx}
+                                  className="px-2 py-0.5 bg-muted border text-muted-foreground font-semibold rounded text-[9px] tracking-wide"
+                                >
+                                  #{kw}
+                                </span>
+                              ))}
+                            </div>
+                          </div>
+                        </CardContent>
+                      </Card>
+                    ))}
+                  </div>
+                )}
+              </div>
+            ) : (
+              <Card className="border-border shadow-sm flex flex-col items-center justify-center p-8 text-center space-y-3 bg-muted/10 min-h-[300px]">
+                <Search className="h-10 w-10 text-muted-foreground/30 animate-pulse" />
+                <div>
+                  <h4 className="font-bold text-foreground text-sm">No growth analysis active</h4>
+                  <p className="text-[11px] text-muted-foreground mt-1 max-w-xs mx-auto leading-relaxed">
+                    Enter a competitor topic or business offer on the left side form to launch the AI Growth Operating System&apos;s automated Trend Miner.
+                  </p>
+                </div>
+              </Card>
+            )}
+          </div>
+        </div>
+      )}
+
       {/* TAB CONTENT: VIRAL CONTENT IDEAS */}
       {activeTab === 'ideas' && (
         <div className="space-y-6">
@@ -336,6 +752,48 @@ export default function ContentStudioPage() {
             <CardDescription>Save logo assets, color systems, and default voices. AI will automatically inject these attributes into all captioning tools.</CardDescription>
           </CardHeader>
           <CardContent className="space-y-4">
+            <div className="space-y-1.5 border-b border-border pb-4 mb-4">
+              <Label className="text-sm font-semibold text-foreground">Brand Logo</Label>
+              <div className="flex items-center gap-4">
+                {logoUrl ? (
+                  <div className="relative h-16 w-16 rounded-xl border border-border bg-muted/20 overflow-hidden flex items-center justify-center group">
+                    <img src={logoUrl} alt="Brand Logo" className="object-contain h-full w-full p-1" />
+                    <button
+                      type="button"
+                      onClick={() => setLogoUrl(null)}
+                      className="absolute inset-0 bg-black/60 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center text-white"
+                    >
+                      <Trash className="h-4 w-4 text-destructive-foreground hover:scale-110 transition-transform" />
+                    </button>
+                  </div>
+                ) : (
+                  <div className="h-16 w-16 rounded-xl border-2 border-dashed border-border flex items-center justify-center text-muted-foreground/60 bg-muted/5">
+                    <Palette className="h-6 w-6" />
+                  </div>
+                )}
+                <div className="flex-1 space-y-1.5">
+                  <input
+                    type="file"
+                    ref={logoInputRef}
+                    onChange={handleLogoFileChange}
+                    className="hidden"
+                    accept="image/*"
+                  />
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    onClick={handleLogoUploadClick}
+                    className="gap-2"
+                  >
+                    <Upload className="h-3.5 w-3.5" />
+                    Upload Logo Image
+                  </Button>
+                  <p className="text-[10px] text-muted-foreground">PNG, JPG or SVG. Transparent background recommended.</p>
+                </div>
+              </div>
+            </div>
+
             <div className="grid grid-cols-2 gap-4">
               <div className="space-y-1.5">
                 <Label>Primary Brand Color</Label>
@@ -401,7 +859,7 @@ export default function ContentStudioPage() {
             </div>
 
             <Button
-              onClick={() => updateBrandMutation.mutate({ primaryColor, secondaryColor, brandVoice, ctaTemplate })}
+              onClick={() => updateBrandMutation.mutate({ logoUrl, primaryColor, secondaryColor, brandVoice, ctaTemplate })}
               disabled={updateBrandMutation.isPending}
               className="w-full mt-2"
             >

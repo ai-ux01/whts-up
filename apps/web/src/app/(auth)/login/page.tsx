@@ -3,7 +3,7 @@
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { useState } from 'react';
-import { MessageCircle } from 'lucide-react';
+import { MessageCircle, Facebook, Instagram } from 'lucide-react';
 import { toast } from 'sonner';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -81,6 +81,36 @@ export default function LoginPage() {
             <Button type="submit" className="w-full" disabled={loading}>
               {loading ? 'Signing in...' : 'Sign in'}
             </Button>
+
+            <div className="relative my-4 pt-1">
+              <div className="absolute inset-0 flex items-center">
+                <div className="w-full border-t border-border"></div>
+              </div>
+              <div className="relative flex justify-center text-xs uppercase">
+                <span className="bg-background px-2 text-muted-foreground">Or sign in with</span>
+              </div>
+            </div>
+
+            <div className="grid grid-cols-2 gap-3 pt-1">
+              <Button
+                type="button"
+                variant="outline"
+                className="hover:bg-blue-50 hover:text-[#1877F2] hover:border-[#1877F2]/50 transition-all duration-300 flex items-center justify-center gap-2 cursor-pointer"
+                onClick={() => router.push('/mock/facebook-login?action=login')}
+              >
+                <Facebook className="h-4 w-4 fill-current" />
+                Facebook
+              </Button>
+              <Button
+                type="button"
+                variant="outline"
+                className="hover:bg-pink-50 hover:text-pink-600 hover:border-pink-500/50 transition-all duration-300 flex items-center justify-center gap-2 cursor-pointer"
+                onClick={() => router.push('/mock/instagram-login?action=login')}
+              >
+                <Instagram className="h-4 w-4" />
+                Instagram
+              </Button>
+            </div>
           </form>
           <p className="mt-4 text-center text-sm text-muted-foreground">
             Platform admin?{' '}

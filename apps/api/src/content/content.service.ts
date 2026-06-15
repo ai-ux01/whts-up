@@ -1,8 +1,11 @@
 import { Injectable, Logger, NotFoundException } from '@nestjs/common';
+import { ConfigService } from '@nestjs/config';
 import { PrismaService } from '../prisma/prisma.service';
 import { AiService } from '../ai/ai.service';
 import { SecretsCryptoService } from '../crypto/secrets-crypto.service';
+import { MetaOAuthService } from '../integrations/meta-oauth.service';
 import { LeadStatus } from '@prisma/client';
+import { SupabaseStorageService } from './supabase-storage.service';
 
 @Injectable()
 export class ContentService {
@@ -11,7 +14,10 @@ export class ContentService {
   constructor(
     private prisma: PrismaService,
     private aiService: AiService,
-    private secretsCrypto: SecretsCryptoService
+    private secretsCrypto: SecretsCryptoService,
+    private supabaseStorageService: SupabaseStorageService,
+    private config: ConfigService,
+    private metaOAuthService: MetaOAuthService
   ) {}
 
   // ==========================================
@@ -380,17 +386,50 @@ For each scene, return a scene text narration (Hinglish/English), duration (4-6s
     });
   }
 
-  async uploadMediaAsset(workspaceId: string, data: { name: string; url: string; type: string; size?: number; folder?: string }) {
-    return this.prisma.mediaAsset.create({
-      data: {
-        workspaceId,
-        name: data.name,
-        url: data.url,
-        type: data.type,
-        size: data.size || 1024,
-        folder: data.folder || 'General'
+  async uploadMediaAsset(
+    workspaceId: string,
+    fileOrData: any,
+    folder = 'General'
+  ) {
+    if (fileOrData && fileOrData.buffer) {
+      const file = fileOrData as { buffer: Buffer; originalname: string; mimetype: string; size: number };
+      const fileUrl = await this.supabaseStorageService.uploadFile(
+        file.buffer,
+        file.originalname,
+        file.mimetype,
+        folder
+      );
+
+      let type = 'IMAGE';
+      if (file.mimetype.startsWith('video/')) {
+        type = 'VIDEO';
+      } else if (file.mimetype.startsWith('audio/')) {
+        type = 'AUDIO';
       }
-    });
+
+      return this.prisma.mediaAsset.create({
+        data: {
+          workspaceId,
+          name: file.originalname,
+          url: fileUrl,
+          type,
+          size: file.size,
+          folder,
+        },
+      });
+    } else {
+      const data = fileOrData as { name: string; url: string; type: string; size?: number; folder?: string };
+      return this.prisma.mediaAsset.create({
+        data: {
+          workspaceId,
+          name: data.name,
+          url: data.url,
+          type: data.type,
+          size: data.size || 1024,
+          folder: data.folder || folder || 'General'
+        }
+      });
+    }
   }
 
   async deleteMediaAsset(workspaceId: string, id: string) {
@@ -437,11 +476,32 @@ For each scene, return a scene text narration (Hinglish/English), duration (4-6s
   }
 
   async getSocialAccounts(workspaceId: string) {
+    const workspace = await this.prisma.workspace.findUnique({
+      where: { id: workspaceId },
+      select: { metaOAuthToken: true, whatsappAccessToken: true }
+    });
+    const hasRealToken = !!(
+      workspace?.metaOAuthToken ||
+      workspace?.whatsappAccessToken ||
+      this.config.get<string>('WHATSAPP_ACCESS_TOKEN')?.trim()
+    );
+
+    if (hasRealToken) {
+      // Delete any seeded dummy accounts in DB
+      await this.prisma.socialAccount.deleteMany({
+        where: {
+          workspaceId,
+          accountId: { in: ['ig_1234567890', 'fb_1234567890'] }
+        }
+      });
+      await this.metaOAuthService.syncSocialAccounts(workspaceId);
+    }
+
     const accounts = await this.prisma.socialAccount.findMany({
       where: { workspaceId }
     });
 
-    if (accounts.length === 0) {
+    if (accounts.length === 0 && !hasRealToken) {
       // Auto seed some dummy integrations for rich first-time UI preview
       await this.prisma.socialAccount.createMany({
         data: [

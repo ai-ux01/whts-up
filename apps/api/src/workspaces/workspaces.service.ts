@@ -8,6 +8,7 @@ import {
 import { ConfigService } from '@nestjs/config';
 import { PrismaService } from '../prisma/prisma.service';
 import { WhatsAppService } from '../whatsapp/whatsapp.service';
+import { MetaOAuthService } from '../integrations/meta-oauth.service';
 import { normalizePhoneE164 } from '../common/utils/phone';
 import { SecretsCryptoService } from '../crypto/secrets-crypto.service';
 import { UpdateWorkspaceSettingsDto } from './dto/update-settings.dto';
@@ -29,6 +30,7 @@ export class WorkspacesService {
     private secrets: SecretsCryptoService,
     @Inject(forwardRef(() => WhatsAppService))
     private whatsappService: WhatsAppService,
+    private metaOAuth: MetaOAuthService,
   ) {}
 
   private envWhatsApp() {
@@ -237,6 +239,17 @@ export class WorkspacesService {
 
     workspace = await this.syncEnvDefaults(workspace);
     await this.migratePlainTokens(workspaceId);
+
+    const token = this.secrets.decryptIfNeeded(workspace.metaOAuthToken) || 
+                  this.secrets.decryptIfNeeded(workspace.whatsappAccessToken) ||
+                  this.config.get<string>('WHATSAPP_ACCESS_TOKEN')?.trim();
+    if (token && (!workspace.metaPageId || !workspace.instagramUsername)) {
+      await this.metaOAuth.syncSocialAccounts(workspaceId);
+      workspace = await this.prisma.workspace.findUnique({
+        where: { id: workspaceId },
+      }) || workspace;
+    }
+
     return this.toSettingsResponse(workspace);
   }
 
@@ -274,10 +287,20 @@ export class WorkspacesService {
       data.defaultUtmSource = dto.defaultUtmSource || null;
     }
 
-    const workspace = await this.prisma.workspace.update({
+    let workspace = await this.prisma.workspace.update({
       where: { id: workspaceId },
       data,
     });
+
+    const token = this.secrets.decryptIfNeeded(workspace.metaOAuthToken) || 
+                  this.secrets.decryptIfNeeded(workspace.whatsappAccessToken) ||
+                  this.config.get<string>('WHATSAPP_ACCESS_TOKEN')?.trim();
+    if (token) {
+      await this.metaOAuth.syncSocialAccounts(workspaceId);
+      workspace = await this.prisma.workspace.findUnique({
+        where: { id: workspaceId },
+      }) || workspace;
+    }
 
     return this.toSettingsResponse(workspace);
   }

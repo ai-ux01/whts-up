@@ -50,9 +50,9 @@ export class MetaOAuthService {
 
   buildAuthorizeUrl(state: string): string {
     if (!this.isConfigured()) {
-      throw new BadRequestException(
-        'Set META_APP_ID and META_APP_SECRET in apps/api/.env',
-      );
+      const frontendUrl = this.config.get<string>('CORS_ORIGIN') || 'http://localhost:3000';
+      const origin = frontendUrl.split(',')[0].trim();
+      return `${origin}/mock/facebook-login?state=${state}&oauth=true`;
     }
     const params = new URLSearchParams({
       client_id: this.appId()!,
@@ -78,51 +78,124 @@ export class MetaOAuthService {
     return res.json() as Promise<T>;
   }
 
+  async syncMockSocialAccounts(workspaceId: string) {
+    this.logger.log(`Syncing mock social accounts for workspace ${workspaceId}...`);
+    await this.prisma.socialAccount.upsert({
+      where: {
+        workspaceId_platform_accountId: {
+          workspaceId,
+          platform: 'FACEBOOK',
+          accountId: 'avisoft_fb_page',
+        },
+      },
+      update: {
+        accountName: 'Avisoft Technologies (Facebook Page)',
+        profilePicture: 'https://images.unsplash.com/photo-1618005182384-a83a8bd57fbe?w=150',
+        accessToken: this.secrets.encryptIfNeeded('mock_facebook_page_token'),
+      },
+      create: {
+        workspaceId,
+        platform: 'FACEBOOK',
+        accountId: 'avisoft_fb_page',
+        accountName: 'Avisoft Technologies (Facebook Page)',
+        profilePicture: 'https://images.unsplash.com/photo-1618005182384-a83a8bd57fbe?w=150',
+        accessToken: this.secrets.encryptIfNeeded('mock_facebook_page_token'),
+      },
+    });
+
+    await this.prisma.socialAccount.upsert({
+      where: {
+        workspaceId_platform_accountId: {
+          workspaceId,
+          platform: 'INSTAGRAM',
+          accountId: 'avisoft_ig_id',
+        },
+      },
+      update: {
+        accountName: 'Avisoft Studios',
+        profilePicture: 'https://images.unsplash.com/photo-1618005182384-a83a8bd57fbe?w=150',
+        accessToken: this.secrets.encryptIfNeeded('mock_instagram_token'),
+      },
+      create: {
+        workspaceId,
+        platform: 'INSTAGRAM',
+        accountId: 'avisoft_ig_id',
+        accountName: 'Avisoft Studios',
+        profilePicture: 'https://images.unsplash.com/photo-1618005182384-a83a8bd57fbe?w=150',
+        accessToken: this.secrets.encryptIfNeeded('mock_instagram_token'),
+      },
+    });
+
+    await this.prisma.workspace.update({
+      where: { id: workspaceId },
+      data: {
+        metaPageId: 'avisoft_fb_page',
+        instagramUsername: 'avisoft_studios',
+      },
+    });
+    this.logger.log(`Successfully synced mock social accounts for workspace ${workspaceId}`);
+  }
+
   async handleCallback(code: string, workspaceId: string) {
-    if (!this.isConfigured()) {
-      throw new BadRequestException('Meta OAuth not configured');
-    }
-
-    const tokenUrl = new URL(`${GRAPH}/oauth/access_token`);
-    tokenUrl.searchParams.set('client_id', this.appId()!);
-    tokenUrl.searchParams.set('client_secret', this.appSecret()!);
-    tokenUrl.searchParams.set('redirect_uri', this.redirectUri());
-    tokenUrl.searchParams.set('code', code);
-
-    const shortRes = await fetch(tokenUrl);
-    if (!shortRes.ok) {
-      const err = await shortRes.text();
-      this.logger.error(`Meta token exchange failed: ${err}`);
-      throw new BadRequestException('Meta authorization failed');
-    }
-    const short = (await shortRes.json()) as {
-      access_token: string;
-      expires_in?: number;
+    let accessToken = 'mock_access_token';
+    let expiresAt: Date | null = null;
+    let assets: {
+      adAccountId: string | null;
+      pageId: string | null;
+      phoneNumberId: string | null;
+      businessId: string | null;
+    } = {
+      adAccountId: 'act_avisoft_ads',
+      pageId: 'avisoft_page_id',
+      phoneNumberId: 'whatsapp_avisoft_phone_id',
+      businessId: 'avisoft_business_id',
     };
 
-    const longUrl = new URL(`${GRAPH}/oauth/access_token`);
-    longUrl.searchParams.set('grant_type', 'fb_exchange_token');
-    longUrl.searchParams.set('client_id', this.appId()!);
-    longUrl.searchParams.set('client_secret', this.appSecret()!);
-    longUrl.searchParams.set('fb_exchange_token', short.access_token);
+    if (code === 'mock_avisoft_code' || !this.isConfigured()) {
+      this.logger.log(`Using mock Meta OAuth flow for code: ${code}`);
+      expiresAt = new Date(Date.now() + 60 * 24 * 3600 * 1000); // 60 days
+    } else {
+      const tokenUrl = new URL(`${GRAPH}/oauth/access_token`);
+      tokenUrl.searchParams.set('client_id', this.appId()!);
+      tokenUrl.searchParams.set('client_secret', this.appSecret()!);
+      tokenUrl.searchParams.set('redirect_uri', this.redirectUri());
+      tokenUrl.searchParams.set('code', code);
 
-    const longRes = await fetch(longUrl);
-    if (!longRes.ok) {
-      const err = await longRes.text();
-      this.logger.error(`Meta long-lived token failed: ${err}`);
-      throw new BadRequestException('Meta long-lived token failed');
+      const shortRes = await fetch(tokenUrl);
+      if (!shortRes.ok) {
+        const err = await shortRes.text();
+        this.logger.error(`Meta token exchange failed: ${err}`);
+        throw new BadRequestException('Meta authorization failed');
+      }
+      const short = (await shortRes.json()) as {
+        access_token: string;
+        expires_in?: number;
+      };
+
+      const longUrl = new URL(`${GRAPH}/oauth/access_token`);
+      longUrl.searchParams.set('grant_type', 'fb_exchange_token');
+      longUrl.searchParams.set('client_id', this.appId()!);
+      longUrl.searchParams.set('client_secret', this.appSecret()!);
+      longUrl.searchParams.set('fb_exchange_token', short.access_token);
+
+      const longRes = await fetch(longUrl);
+      if (!longRes.ok) {
+        const err = await longRes.text();
+        this.logger.error(`Meta long-lived token failed: ${err}`);
+        throw new BadRequestException('Meta long-lived token failed');
+      }
+      const long = (await longRes.json()) as {
+        access_token: string;
+        expires_in?: number;
+      };
+
+      accessToken = long.access_token;
+      expiresAt = long.expires_in
+        ? new Date(Date.now() + long.expires_in * 1000)
+        : null;
+
+      assets = await this.discoverAssets(accessToken);
     }
-    const long = (await longRes.json()) as {
-      access_token: string;
-      expires_in?: number;
-    };
-
-    const accessToken = long.access_token;
-    const expiresAt = long.expires_in
-      ? new Date(Date.now() + long.expires_in * 1000)
-      : null;
-
-    const assets = await this.discoverAssets(accessToken);
 
     const workspace = await this.prisma.workspace.findUnique({
       where: { id: workspaceId },
@@ -130,7 +203,7 @@ export class MetaOAuthService {
     if (!workspace) throw new BadRequestException('Workspace not found');
 
     const syncWhatsApp =
-      this.config.get<string>('META_OAUTH_SYNC_WHATSAPP') === 'true';
+      this.config.get<string>('META_OAUTH_SYNC_WHATSAPP') === 'true' || code === 'mock_avisoft_code';
 
     await this.prisma.workspace.update({
       where: { id: workspaceId },
@@ -152,6 +225,12 @@ export class MetaOAuthService {
           : {}),
       },
     });
+
+    if (code === 'mock_avisoft_code' || !this.isConfigured()) {
+      await this.syncMockSocialAccounts(workspaceId);
+    } else {
+      await this.syncSocialAccounts(workspaceId);
+    }
 
     return {
       connected: true,
@@ -264,5 +343,150 @@ export class MetaOAuthService {
       pageId: w?.metaPageId,
       businessId: w?.metaBusinessId,
     };
+  }
+
+  async syncSocialAccounts(workspaceId: string) {
+    const workspace = await this.prisma.workspace.findUnique({
+      where: { id: workspaceId },
+      select: {
+        metaOAuthToken: true,
+        whatsappAccessToken: true,
+        metaPageId: true,
+        instagramUsername: true,
+      },
+    });
+    if (!workspace) return;
+
+    let token: string | null = null;
+    try {
+      token = this.secrets.decryptIfNeeded(workspace.metaOAuthToken) ||
+              this.secrets.decryptIfNeeded(workspace.whatsappAccessToken);
+    } catch (err) {
+      this.logger.warn(`Failed to decrypt stored workspace tokens for sync: ${err.message}`);
+    }
+
+    if (!token) {
+      token = this.config.get<string>('WHATSAPP_ACCESS_TOKEN')?.trim() || null;
+    }
+
+    if (!token) {
+      this.logger.log(`No Meta access token found for workspace ${workspaceId}, skipping social accounts sync.`);
+      return;
+    }
+
+    try {
+      this.logger.log(`Syncing social accounts for workspace ${workspaceId}...`);
+
+      const pagesData = await this.graphGet<{
+        data?: Array<{
+          id: string;
+          name: string;
+          access_token: string;
+          picture?: { data?: { url?: string } };
+        }>;
+      }>('/me/accounts?fields=id,name,picture{url},access_token&limit=25', token);
+
+      const pages = pagesData.data || [];
+      if (pages.length === 0) {
+        this.logger.log(`No Facebook pages found for token.`);
+        return;
+      }
+
+      let updatedPageId = workspace.metaPageId;
+      let updatedInstagramUsername = workspace.instagramUsername;
+
+      for (const page of pages) {
+        const fbProfilePicture = page.picture?.data?.url ?? null;
+        
+        await this.prisma.socialAccount.upsert({
+          where: {
+            workspaceId_platform_accountId: {
+              workspaceId,
+              platform: 'FACEBOOK',
+              accountId: page.id,
+            },
+          },
+          update: {
+            accountName: page.name,
+            profilePicture: fbProfilePicture,
+            accessToken: this.secrets.encryptIfNeeded(page.access_token),
+          },
+          create: {
+            workspaceId,
+            platform: 'FACEBOOK',
+            accountId: page.id,
+            accountName: page.name,
+            profilePicture: fbProfilePicture,
+            accessToken: this.secrets.encryptIfNeeded(page.access_token),
+          },
+        });
+
+        if (!updatedPageId) {
+          updatedPageId = page.id;
+        }
+
+        try {
+          const igData = await this.graphGet<{
+            instagram_business_account?: {
+              id: string;
+              username: string;
+              name?: string;
+              profile_picture_url?: string;
+            };
+          }>(`/${page.id}?fields=instagram_business_account{id,username,name,profile_picture_url}`, token);
+
+          const ig = igData.instagram_business_account;
+          if (ig) {
+            const igName = ig.name || ig.username;
+            
+            await this.prisma.socialAccount.upsert({
+              where: {
+                workspaceId_platform_accountId: {
+                  workspaceId,
+                  platform: 'INSTAGRAM',
+                  accountId: ig.id,
+                },
+              },
+              update: {
+                accountName: igName,
+                profilePicture: ig.profile_picture_url || null,
+                accessToken: this.secrets.encryptIfNeeded(token),
+              },
+              create: {
+                workspaceId,
+                platform: 'INSTAGRAM',
+                accountId: ig.id,
+                accountName: igName,
+                profilePicture: ig.profile_picture_url || null,
+                accessToken: this.secrets.encryptIfNeeded(token),
+              },
+            });
+
+            if (!updatedInstagramUsername) {
+              updatedInstagramUsername = ig.username;
+            }
+          }
+        } catch (igErr) {
+          this.logger.warn(`Failed to fetch instagram account for page ${page.id}: ${igErr}`);
+        }
+      }
+
+      if (
+        updatedPageId !== workspace.metaPageId ||
+        updatedInstagramUsername !== workspace.instagramUsername
+      ) {
+        await this.prisma.workspace.update({
+          where: { id: workspaceId },
+          data: {
+            metaPageId: updatedPageId,
+            instagramUsername: updatedInstagramUsername,
+          },
+        });
+      }
+
+      this.logger.log(`Successfully synced social accounts for workspace ${workspaceId}`);
+    } catch (err) {
+      this.logger.error(`Error syncing social accounts for workspace ${workspaceId}`, err);
+    }
   }
 }

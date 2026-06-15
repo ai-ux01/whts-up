@@ -1,6 +1,6 @@
 'use client';
 
-import { useState } from 'react';
+import { useState, useRef } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { toast } from 'sonner';
 import { api } from '@/lib/api-client';
@@ -71,12 +71,14 @@ export default function MediaLibraryPage() {
     }
   ];
 
+  const fileInputRef = useRef<HTMLInputElement>(null);
+
   // Upload Asset Mutation
   const uploadMutation = useMutation({
-    mutationFn: (body: { name: string; url: string; type: string; size: number; folder: string }) =>
+    mutationFn: (formData: FormData) =>
       api<MediaAsset>('/content/media', {
         method: 'POST',
-        body: JSON.stringify(body),
+        body: formData,
       }),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['media-assets'] });
@@ -98,22 +100,32 @@ export default function MediaLibraryPage() {
     onError: (e: { message?: string }) => toast.error(e.message || 'Deletion failed'),
   });
 
-  const handleSimulatedUpload = () => {
-    // Generate a random mock file upload
-    const mockImages = [
-      'https://images.unsplash.com/photo-1512917774080-9991f1c4c750?w=500&auto=format&fit=crop',
-      'https://images.unsplash.com/photo-1560518883-ce09059eeffa?w=500&auto=format&fit=crop',
-      'https://images.unsplash.com/photo-1504384308090-c894fdcc538d?w=500&auto=format&fit=crop'
-    ];
-    const names = ['Luxury-BHK-Layout.jpg', 'JEE-Prep-Desk.jpg', 'Solar-Audit-Diagram.jpg'];
-    const rIdx = Math.floor(Math.random() * mockImages.length);
+  const handleUploadClick = () => {
+    fileInputRef.current?.click();
+  };
 
-    uploadMutation.mutate({
-      name: names[rIdx],
-      url: mockImages[rIdx],
-      type: 'IMAGE',
-      size: Math.floor(800000 + Math.random() * 2000000),
-      folder: activeFolder !== 'All' ? activeFolder : 'General',
+  const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const files = e.target.files;
+    if (!files || files.length === 0) return;
+
+    const file = files[0];
+    const formData = new FormData();
+    formData.append('file', file);
+    formData.append('folder', activeFolder !== 'All' ? activeFolder : 'General');
+
+    const toastId = toast.loading(`Uploading "${file.name}" to Cloud Storage...`);
+
+    uploadMutation.mutate(formData, {
+      onSuccess: () => {
+        toast.dismiss(toastId);
+        if (fileInputRef.current) fileInputRef.current.value = '';
+      },
+      onError: (err: unknown) => {
+        toast.dismiss(toastId);
+        const errorMsg = err instanceof Error ? err.message : 'File upload failed';
+        toast.error(errorMsg);
+        if (fileInputRef.current) fileInputRef.current.value = '';
+      }
     });
   };
 
@@ -148,10 +160,19 @@ export default function MediaLibraryPage() {
             Store and manage stock files, campaign graphics, reels videos, and reusable assets in a single workspace.
           </p>
         </div>
-        <Button onClick={handleSimulatedUpload} className="gap-2 self-start md:self-auto">
-          <Upload className="h-4 w-4" />
-          Upload Assets
-        </Button>
+        <div>
+          <input
+            type="file"
+            ref={fileInputRef}
+            onChange={handleFileChange}
+            className="hidden"
+            accept="image/*,video/*,audio/*"
+          />
+          <Button onClick={handleUploadClick} disabled={uploadMutation.isPending} className="gap-2 self-start md:self-auto">
+            <Upload className="h-4 w-4" />
+            {uploadMutation.isPending ? 'Uploading...' : 'Upload Assets'}
+          </Button>
+        </div>
       </div>
 
       {/* Directory Folders Row */}

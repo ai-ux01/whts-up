@@ -22,6 +22,16 @@ import { CryptoModule } from './crypto/crypto.module';
 import { QueueModule } from './queue/queue.module';
 import { IntegrationsModule } from './integrations/integrations.module';
 import { ContentModule } from './content/content.module';
+import { GoogleBusinessModule } from './google-business/google-business.module';
+import { FeedbackModule } from './feedback/feedback.module';
+import { ReviewsModule } from './reviews/reviews.module';
+import { ReputationModule } from './reputation/reputation.module';
+import { AIInsightsModule } from './ai-insights/ai-insights.module';
+import { CompetitorModule } from './competitor/competitor.module';
+import { ReviewsAnalysisModule } from './reviews-analysis/reviews-analysis.module';
+import { InsightsModule } from './insights/insights.module';
+import { AIRecommendationsModule } from './ai-recommendations/ai-recommendations.module';
+import { ReportingModule } from './reporting/reporting.module';
 
 @Module({
   imports: [
@@ -52,6 +62,16 @@ import { ContentModule } from './content/content.module';
     HealthModule,
     IntegrationsModule,
     ContentModule,
+    GoogleBusinessModule,
+    FeedbackModule,
+    ReviewsModule,
+    ReputationModule,
+    AIInsightsModule,
+    CompetitorModule,
+    ReviewsAnalysisModule,
+    InsightsModule,
+    AIRecommendationsModule,
+    ReportingModule,
   ],
   providers: [
     {

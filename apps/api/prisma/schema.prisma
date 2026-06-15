@@ -58,10 +58,15 @@ enum RecipientStatus {
 
 enum AutomationTrigger {
   NO_REPLY_24H
+  SERVICE_COMPLETED
+  NEGATIVE_FEEDBACK_DETECTED
+  POSITIVE_REVIEW_RECEIVED
 }
 
 enum AutomationAction {
   SEND_MESSAGE
+  SEND_FEEDBACK_REQUEST
+  NOTIFY_ADMIN
 }
 
 model Workspace {
@@ -108,6 +113,13 @@ model Workspace {
   contentIdeas    ContentIdea[]
   scheduledPosts  ScheduledPost[]
   researchReports ResearchReport[]
+  feedbacks             Feedback[]
+  reviewRequests        ReviewRequest[]
+  googleReviews         GoogleReview[]
+  reputationInsights    ReputationInsight[]
+  competitors           Competitor[]
+  improvementSuggestions ImprovementSuggestion[]
+  marketInsights        MarketInsight[]
 }
 
 model User {
@@ -143,6 +155,7 @@ model Contact {
   workspace     Workspace      @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
   conversations Conversation[]
   lead          Lead?
+  reviewRequests ReviewRequest[]
 
   @@unique([workspaceId, phone])
   @@index([workspaceId])
@@ -417,6 +430,131 @@ model ResearchReport {
   updatedAt    DateTime @updatedAt
 
   workspace    Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+
+  @@index([workspaceId])
+}
+
+model Feedback {
+  id                String   @id @default(cuid())
+  workspaceId       String
+  customerName      String
+  phone             String
+  email             String?
+  rating            Int
+  feedback          String?
+  sentiment         String?  // POSITIVE, NEUTRAL, NEGATIVE
+  complaintCategory String?  // e.g. "Staff Behavior", "Delivery Delay", "Product Quality"
+  source            String   @default("WHATSAPP") // WHATSAPP, WIDGET
+  createdAt         DateTime @default(now())
+
+  workspace         Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+
+  @@index([workspaceId])
+  @@index([workspaceId, rating])
+  @@index([workspaceId, sentiment])
+}
+
+model ReviewRequest {
+  id          String   @id @default(cuid())
+  workspaceId String
+  customerId  String   // Points to Contact
+  platform    String   @default("GOOGLE") // GOOGLE, etc.
+  sentAt      DateTime @default(now())
+  reviewed    Boolean  @default(false)
+
+  workspace   Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  contact     Contact   @relation(fields: [customerId], references: [id], onDelete: Cascade)
+
+  @@index([workspaceId])
+  @@index([customerId])
+}
+
+model GoogleReview {
+  id          String    @id @default(cuid())
+  workspaceId String
+  author      String
+  rating      Int
+  reviewText  String?
+  reviewDate  DateTime
+  sentiment   String?   // POSITIVE, NEUTRAL, NEGATIVE
+  aiSummary   String?
+  replyText   String?   // Store AI-generated or custom reply
+  repliedAt   DateTime?
+
+  workspace   Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+
+  @@index([workspaceId])
+  @@index([workspaceId, rating])
+}
+
+model ReputationInsight {
+  id          String   @id @default(cuid())
+  workspaceId String
+  insight     String
+  category    String   // e.g. "COMPLAINT_TREND", "POSITIVE_HIGHLIGHT", "CSAT_OVERVIEW"
+  createdAt   DateTime @default(now())
+
+  workspace   Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+
+  @@index([workspaceId])
+}
+
+model Competitor {
+  id            String   @id @default(cuid())
+  workspaceId   String
+  name          String
+  category      String
+  location      String
+  averageRating Float    @default(0.0)
+  totalReviews  Int      @default(0)
+  source        String   @default("GOOGLE_MAPS")
+  createdAt     DateTime @default(now())
+
+  workspace     Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  reviews       CompetitorReview[]
+
+  @@index([workspaceId])
+}
+
+model CompetitorReview {
+  id                String   @id @default(cuid())
+  competitorId      String
+  reviewerName      String
+  rating            Int
+  reviewText        String?
+  sentiment         String?  // POSITIVE, NEUTRAL, NEGATIVE
+  complaintCategory String?  // e.g. "Pricing", "Service Speed", "Quality"
+  praiseCategory    String?  // e.g. "Customer Service", "Product Quality"
+  reviewDate        DateTime
+
+  competitor        Competitor @relation(fields: [competitorId], references: [id], onDelete: Cascade)
+
+  @@index([competitorId])
+}
+
+model ImprovementSuggestion {
+  id            String   @id @default(cuid())
+  businessId    String   // maps to Workspace.id
+  suggestion    String
+  priority      String   // HIGH, MEDIUM, LOW
+  category      String   // e.g. "Pricing", "Customer Support", "Delivery Speed"
+  impactScore   Int      @default(0) // 1 to 100
+  createdAt     DateTime @default(now())
+
+  workspace     Workspace @relation(fields: [businessId], references: [id], onDelete: Cascade)
+
+  @@index([businessId])
+}
+
+model MarketInsight {
+  id            String   @id @default(cuid())
+  workspaceId   String   // tenant isolation
+  title         String
+  description   String
+  category      String   // e.g. "MARKET_GAP", "COMPETITOR_WEAKNESS"
+  createdAt     DateTime @default(now())
+
+  workspace     Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
 
   @@index([workspaceId])
 }

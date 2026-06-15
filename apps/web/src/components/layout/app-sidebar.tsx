@@ -14,7 +14,8 @@ import {
   Image,
   Calendar,
   BarChart2,
-  TrendingUp,
+  Star,
+  Target,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { useAuthStore } from '@/stores/auth-store';
@@ -26,10 +27,11 @@ const nav = [
   { href: '/campaigns', label: 'Campaigns', icon: Megaphone },
   { href: '/content-studio', label: 'Content Studio', icon: Sparkles },
   { href: '/reel-creator', label: 'Reel Creator', icon: Film },
-  { href: '/research-engine', label: 'Research Engine', icon: TrendingUp },
   { href: '/media-library', label: 'Media Library', icon: Image },
   { href: '/content-calendar', label: 'Content Calendar', icon: Calendar },
   { href: '/analytics', label: 'Analytics', icon: BarChart2 },
+  { href: '/reputation', label: 'Reputation', icon: Star },
+  { href: '/competitors', label: 'Competitors', icon: Target },
   { href: '/settings', label: 'Settings', icon: Settings, adminOnly: true },
 ];
 
