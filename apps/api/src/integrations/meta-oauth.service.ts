@@ -11,8 +11,6 @@ const GRAPH = 'https://graph.facebook.com/v21.0';
 const SCOPES = [
   'business_management',
   'pages_show_list',
-  'pages_read_engagement',
-  'pages_manage_posts',
   'whatsapp_business_management',
   'whatsapp_business_messaging',
 ].join(',');
@@ -55,13 +53,23 @@ export class MetaOAuthService {
       const origin = frontendUrl.split(',')[0].trim();
       return `${origin}/mock/facebook-login?state=${state}&oauth=true`;
     }
+
+    const configId = this.config.get<string>('META_CONFIG_ID')?.trim();
+
     const params = new URLSearchParams({
       client_id: this.appId()!,
       redirect_uri: this.redirectUri(),
       state,
-      scope: SCOPES,
       response_type: 'code',
     });
+
+    if (configId) {
+      params.set('config_id', configId);
+      params.set('override_default_response_type', 'true');
+    } else {
+      params.set('scope', SCOPES);
+    }
+
     return `https://www.facebook.com/v21.0/dialog/oauth?${params}`;
   }
 
