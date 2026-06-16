@@ -10,8 +10,9 @@ import { SecretsCryptoService } from '../crypto/secrets-crypto.service';
 const GRAPH = 'https://graph.facebook.com/v21.0';
 const SCOPES = [
   'business_management',
-  'ads_read',
   'pages_show_list',
+  'pages_read_engagement',
+  'pages_manage_posts',
   'whatsapp_business_management',
   'whatsapp_business_messaging',
 ].join(',');
