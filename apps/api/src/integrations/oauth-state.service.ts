@@ -9,6 +9,7 @@ export interface OAuthStatePayload {
   userId: string;
   provider: OAuthProvider;
   exp: number;
+  origin?: string;
 }
 
 @Injectable()
@@ -22,12 +23,13 @@ export class OAuthStateService {
     );
   }
 
-  sign(workspaceId: string, userId: string, provider: OAuthProvider): string {
+  sign(workspaceId: string, userId: string, provider: OAuthProvider, origin?: string): string {
     const payload: OAuthStatePayload = {
       workspaceId,
       userId,
       provider,
       exp: Date.now() + 10 * 60 * 1000,
+      origin,
     };
     const body = Buffer.from(JSON.stringify(payload)).toString('base64url');
     const sig = crypto

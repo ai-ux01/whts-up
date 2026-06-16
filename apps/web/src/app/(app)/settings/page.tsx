@@ -190,7 +190,8 @@ export default function SettingsPage() {
 
   const connectMetaMutation = useMutation({
     mutationFn: async () => {
-      const { url } = await api<{ url: string }>('/integrations/meta/connect-url');
+      const origin = window.location.origin;
+      const { url } = await api<{ url: string }>(`/integrations/meta/connect-url?origin=${encodeURIComponent(origin)}`);
       window.location.href = url;
     },
     onError: (e) => toast.error(e.message),
@@ -208,7 +209,8 @@ export default function SettingsPage() {
 
   const connectGoogleMutation = useMutation({
     mutationFn: async () => {
-      const { url } = await api<{ url: string }>('/integrations/google/connect-url');
+      const origin = window.location.origin;
+      const { url } = await api<{ url: string }>(`/integrations/google/connect-url?origin=${encodeURIComponent(origin)}`);
       window.location.href = url;
     },
     onError: (e) => toast.error(e.message),

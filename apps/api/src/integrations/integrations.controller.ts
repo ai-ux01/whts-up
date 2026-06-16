@@ -30,7 +30,17 @@ export class IntegrationsController {
     private googleOAuth: GoogleOAuthService,
   ) {}
 
-  private frontendBase(): string {
+  private frontendBase(state?: string, provider?: 'meta' | 'google'): string {
+    if (state && provider) {
+      try {
+        const payload = this.oauthState.verify(state, provider);
+        if (payload.origin) {
+          return payload.origin;
+        }
+      } catch {
+        // ignore and fallback
+      }
+    }
     const origin = this.config.get<string>('CORS_ORIGIN') || 'http://localhost:3000';
     return origin.split(',')[0].trim();
   }
@@ -40,10 +50,11 @@ export class IntegrationsController {
     provider: 'meta' | 'google',
     status: 'success' | 'error',
     message?: string,
+    state?: string,
   ) {
     const params = new URLSearchParams({ oauth: provider, status });
     if (message) params.set('message', message);
-    res.redirect(`${this.frontendBase()}/settings?${params}`);
+    res.redirect(`${this.frontendBase(state, provider)}/settings?${params}`);
   }
 
   // --- Meta (authenticated) ---
@@ -51,9 +62,9 @@ export class IntegrationsController {
   @Get('meta/connect-url')
   @UseGuards(JwtAuthGuard, ClientUserGuard, RolesGuard)
   @Roles(UserRole.ADMIN)
-  metaConnectUrl(@CurrentUser() user: AuthUser) {
+  metaConnectUrl(@CurrentUser() user: AuthUser, @Query('origin') origin?: string) {
     const workspaceId = requireWorkspaceId(user);
-    const state = this.oauthState.sign(workspaceId, user.id, 'meta');
+    const state = this.oauthState.sign(workspaceId, user.id, 'meta', origin);
     return { url: this.metaOAuth.buildAuthorizeUrl(state) };
   }
 
@@ -85,6 +96,7 @@ export class IntegrationsController {
         'meta',
         'error',
         error || 'Authorization cancelled',
+        state,
       );
     }
     try {
@@ -96,10 +108,10 @@ export class IntegrationsController {
       const msg = result.phoneNumberId
         ? `Connected. Phone ID ${result.phoneNumberId} detected.`
         : 'Connected to Meta.';
-      return this.redirectToSettings(res, 'meta', 'success', msg);
+      return this.redirectToSettings(res, 'meta', 'success', msg, state);
     } catch (err) {
       const message = err instanceof Error ? err.message : 'Meta connect failed';
-      return this.redirectToSettings(res, 'meta', 'error', message);
+      return this.redirectToSettings(res, 'meta', 'error', message, state);
     }
   }
 
@@ -108,9 +120,9 @@ export class IntegrationsController {
   @Get('google/connect-url')
   @UseGuards(JwtAuthGuard, ClientUserGuard, RolesGuard)
   @Roles(UserRole.ADMIN)
-  googleConnectUrl(@CurrentUser() user: AuthUser) {
+  googleConnectUrl(@CurrentUser() user: AuthUser, @Query('origin') origin?: string) {
     const workspaceId = requireWorkspaceId(user);
-    const state = this.oauthState.sign(workspaceId, user.id, 'google');
+    const state = this.oauthState.sign(workspaceId, user.id, 'google', origin);
     return { url: this.googleOAuth.buildAuthorizeUrl(state) };
   }
 
@@ -142,6 +154,7 @@ export class IntegrationsController {
         'google',
         'error',
         error || 'Authorization cancelled',
+        state,
       );
     }
     try {
@@ -153,11 +166,11 @@ export class IntegrationsController {
       const msg = result.customerId
         ? `Connected. Customer ID ${result.customerId}.`
         : result.customerListError || 'Connected to Google.';
-      return this.redirectToSettings(res, 'google', 'success', msg);
+      return this.redirectToSettings(res, 'google', 'success', msg, state);
     } catch (err) {
       const message =
         err instanceof Error ? err.message : 'Google connect failed';
-      return this.redirectToSettings(res, 'google', 'error', message);
+      return this.redirectToSettings(res, 'google', 'error', message, state);
     }
   }
 }
