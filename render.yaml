@@ -23,10 +23,14 @@ services:
         sync: false
       - key: DIRECT_URL
         sync: false
+      # Set these ONCE (openssl rand -base64 32) and keep them stable. If they
+      # change, ALL existing access/refresh tokens are invalidated → every user
+      # gets 401 until they log in again. Managed manually (sync:false) so a
+      # redeploy never silently rotates them.
       - key: JWT_ACCESS_SECRET
-        generateValue: true
+        sync: false
       - key: JWT_REFRESH_SECRET
-        generateValue: true
+        sync: false
       - key: CORS_ORIGIN
         sync: false
       - key: API_URL
