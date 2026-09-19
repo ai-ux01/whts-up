@@ -44,7 +44,7 @@ Unlike Google Places and Meta OAuth (which I made throw in production), SMS and 
 
 Recommendation: make SMS/Email also fail-loud in production when a campaign targets those channels without a configured provider — consistent with the Google/Meta guards. Want me to add that guard? It's a small, safe change (throw in prod when the resolved provider is mock and a real send is attempted), and I'll verify with a build.
 
-For a real launch with AI features on:
+For a real launch with AI features on: 
 
 OPENAI_API_KEY (and set OLLAMA_MODE=off) — a valid key; verify it works (invalid keys silently fall back to mock).
 GOOGLE_PLACES_API_KEY — separate from OAuth; enable Places API in Google Cloud.
