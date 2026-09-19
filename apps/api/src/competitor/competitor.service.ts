@@ -1,6 +1,10 @@
 import { Injectable, Logger, BadRequestException, NotFoundException } from '@nestjs/common';
+import { ConfigService } from '@nestjs/config';
 import { PrismaService } from '../prisma/prisma.service';
 import { MessagesService } from '../messages/messages.service';
+
+const PLACES_TEXT_SEARCH = 'https://maps.googleapis.com/maps/api/place/textsearch/json';
+const PLACE_DETAILS = 'https://maps.googleapis.com/maps/api/place/details/json';
 
 @Injectable()
 export class CompetitorService {
@@ -337,21 +341,96 @@ export class CompetitorService {
   constructor(
     private prisma: PrismaService,
     private messagesService: MessagesService,
+    private config: ConfigService,
   ) {}
 
+  private placesApiKey(): string | null {
+    return this.config.get<string>('GOOGLE_PLACES_API_KEY')?.trim() || null;
+  }
+
+  private isProd(): boolean {
+    return this.config.get<string>('NODE_ENV') === 'production';
+  }
+
   /**
-   * Discovers competitors from Google Maps using keyword details
+   * Discovers competitors from Google Maps (Places Text Search) when
+   * GOOGLE_PLACES_API_KEY is configured. Falls back to a curated demo list
+   * (clearly logged) so the feature is explorable without a key.
    */
   async searchCompetitors(query: string, category: string, location: string) {
-    this.logger.log(`Searching competitor places: Query="${query}", Category="${category}", Location="${location}"`);
+    this.logger.log(
+      `Searching competitor places: Query="${query}", Category="${category}", Location="${location}"`,
+    );
 
-    // Normalized filters
+    const apiKey = this.placesApiKey();
+    if (apiKey) {
+      try {
+        return await this.searchViaGooglePlaces(apiKey, query, category, location);
+      } catch (err) {
+        this.logger.error(`Google Places search failed: ${(err as Error).message}`);
+        if (this.isProd()) {
+          throw new BadRequestException(
+            'Competitor search failed. Verify GOOGLE_PLACES_API_KEY.',
+          );
+        }
+        this.logger.warn('Falling back to demo list (non-production).');
+      }
+    } else if (this.isProd()) {
+      // Do NOT return fabricated competitors in production.
+      throw new BadRequestException(
+        'Competitor discovery is not configured. Set GOOGLE_PLACES_API_KEY to enable live search.',
+      );
+    } else {
+      this.logger.warn(
+        'GOOGLE_PLACES_API_KEY not set — returning demo competitor list (non-production only).',
+      );
+    }
+
+    return this.filterDemoCompetitors(query, category, location);
+  }
+
+  private async searchViaGooglePlaces(
+    apiKey: string,
+    query: string,
+    category: string,
+    location: string,
+  ) {
+    const searchText = [query, category, location].filter(Boolean).join(' ').trim();
+    const url = `${PLACES_TEXT_SEARCH}?query=${encodeURIComponent(searchText)}&key=${apiKey}`;
+    const res = await fetch(url);
+    const data = (await res.json()) as {
+      status?: string;
+      error_message?: string;
+      results?: Array<{
+        place_id: string;
+        name: string;
+        formatted_address?: string;
+        rating?: number;
+        user_ratings_total?: number;
+        types?: string[];
+      }>;
+    };
+
+    if (data.status && data.status !== 'OK' && data.status !== 'ZERO_RESULTS') {
+      throw new Error(data.error_message || data.status);
+    }
+
+    return (data.results || []).map((p) => ({
+      placeId: p.place_id,
+      name: p.name,
+      category: category || (p.types?.[0] ?? 'Business'),
+      location: p.formatted_address || location,
+      averageRating: p.rating ?? 0,
+      totalReviews: p.user_ratings_total ?? 0,
+    }));
+  }
+
+  private filterDemoCompetitors(query: string, category: string, location: string) {
     const normCategory = category?.toLowerCase().trim() || '';
     const normLocation = location?.toLowerCase().trim() || '';
     const normQuery = query?.toLowerCase().trim() || '';
 
     let results = this.mockIndianCompetitors;
-
     if (normCategory) {
       results = results.filter((c) => c.category.toLowerCase() === normCategory);
     }
@@ -361,7 +440,6 @@ export class CompetitorService {
     if (normQuery) {
       results = results.filter((c) => c.name.toLowerCase().includes(normQuery));
     }
-
     return results;
   }
 
@@ -374,6 +452,7 @@ export class CompetitorService {
     location: string;
     averageRating: number;
     totalReviews: number;
+    placeId?: string;
   }) {
     // Avoid double tracking the same competitor
     const existing = await this.prisma.competitor.findFirst({
@@ -399,24 +478,51 @@ export class CompetitorService {
       },
     });
 
-    // Seed customer reviews in database
-    const key = competitorData.name.toLowerCase().trim();
-    const reviewsList = this.mockCompetitorReviews[key] || [
-      {
-        reviewerName: 'Amit Shah',
-        rating: 4,
-        reviewText: 'Good overall services and polite behavior.',
-        sentiment: 'POSITIVE',
-        praiseCategory: 'Customer Service',
-      },
-      {
-        reviewerName: 'Ramesh Sharma',
-        rating: 2,
-        reviewText: 'Decent work but pricing is extremely high.',
-        sentiment: 'NEGATIVE',
-        complaintCategory: 'Pricing',
-      },
-    ];
+    // Populate reviews: live via Google Place Details when possible, else demo seed.
+    const apiKey = this.placesApiKey();
+    let reviewsList: Array<{
+      reviewerName: string;
+      rating: number;
+      reviewText: string;
+      sentiment: string;
+      complaintCategory?: string | null;
+      praiseCategory?: string | null;
+      reviewDate?: Date;
+    }> = [];
+
+    if (apiKey && competitorData.placeId) {
+      try {
+        reviewsList = await this.fetchPlaceReviews(apiKey, competitorData.placeId);
+        this.logger.log(`Fetched ${reviewsList.length} live reviews for "${competitor.name}".`);
+      } catch (err) {
+        this.logger.error(`Live review fetch failed for "${competitor.name}": ${(err as Error).message}`);
+      }
+    }
+
+    if (reviewsList.length === 0) {
+      const key = competitorData.name.toLowerCase().trim();
+      reviewsList = this.mockCompetitorReviews[key] || [
+        {
+          reviewerName: 'Amit Shah',
+          rating: 4,
+          reviewText: 'Good overall services and polite behavior.',
+          sentiment: 'POSITIVE',
+          praiseCategory: 'Customer Service',
+        },
+        {
+          reviewerName: 'Ramesh Sharma',
+          rating: 2,
+          reviewText: 'Decent work but pricing is extremely high.',
+          sentiment: 'NEGATIVE',
+          complaintCategory: 'Pricing',
+        },
+      ];
+      if (!apiKey) {
+        this.logger.warn(
+          `GOOGLE_PLACES_API_KEY not set — seeded ${reviewsList.length} demo reviews for "${competitor.name}".`,
+        );
+      }
+    }
 
     for (const r of reviewsList) {
       await this.prisma.competitorReview.create({
@@ -428,13 +534,37 @@ export class CompetitorService {
           sentiment: r.sentiment,
           complaintCategory: r.complaintCategory || null,
           praiseCategory: r.praiseCategory || null,
-          reviewDate: new Date(Date.now() - Math.floor(Math.random() * 10) * 24 * 3600 * 1000),
+          reviewDate: r.reviewDate ?? new Date(),
         },
       });
     }
 
-    this.logger.log(`Tracked competitor: "${competitor.name}" and seeded ${reviewsList.length} reviews.`);
+    this.logger.log(`Tracked competitor: "${competitor.name}" with ${reviewsList.length} reviews.`);
     return competitor;
+  }
+
+  /** Fetch up to 5 reviews from the Google Place Details endpoint. */
+  private async fetchPlaceReviews(apiKey: string, placeId: string) {
+    const url = `${PLACE_DETAILS}?place_id=${encodeURIComponent(placeId)}&fields=reviews&key=${apiKey}`;
+    const res = await fetch(url);
+    const data = (await res.json()) as {
+      status?: string;
+      error_message?: string;
+      result?: {
+        reviews?: Array<{ author_name: string; rating: number; text: string; time: number }>;
+      };
+    };
+    if (data.status && data.status !== 'OK') {
+      throw new Error(data.error_message || data.status);
+    }
+    return (data.result?.reviews || []).map((rv) => ({
+      reviewerName: rv.author_name,
+      rating: rv.rating,
+      reviewText: rv.text,
+      // Sentiment left null here; the reviews-analysis/AI pipeline classifies it.
+      sentiment: rv.rating >= 4 ? 'POSITIVE' : rv.rating <= 2 ? 'NEGATIVE' : 'NEUTRAL',
+      reviewDate: new Date(rv.time * 1000),
+    }));
   }
 
   /**
@@ -464,61 +594,119 @@ export class CompetitorService {
   }
 
   /**
-   * Simulated Periodic Reviews Syncer:
-   * Syncs and updates tracked competitors, evaluates score drops or alert anomalies
+   * Periodic competitor sync. When GOOGLE_PLACES_API_KEY is configured this
+   * re-fetches live rating/review counts from Google Place Details and fires
+   * alerts on real changes. Without a key it is a no-op (no fabricated data).
+   *
+   * NOTE: live re-fetch requires each competitor to have been discovered with
+   * a placeId. Legacy/demo-seeded competitors have none and are skipped.
    */
   async runPeriodicSync(workspaceId: string) {
-    this.logger.log(`Running periodic reviews scraper sync for workspace ${workspaceId}...`);
-    const competitors = await this.prisma.competitor.findMany({
-      where: { workspaceId },
-    });
+    this.logger.log(`Running periodic competitor sync for workspace ${workspaceId}...`);
+
+    const apiKey = this.placesApiKey();
+    if (!apiKey) {
+      this.logger.warn(
+        'GOOGLE_PLACES_API_KEY not set — skipping competitor sync (no live data source).',
+      );
+      return {
+        success: true,
+        competitorsSynced: 0,
+        skipped: true,
+        reason: 'GOOGLE_PLACES_API_KEY not configured',
+        alertsTriggered: { ratingDrops: 0, reviewSpikes: 0 },
+      };
+    }
+
+    const competitors = await this.prisma.competitor.findMany({ where: { workspaceId } });
 
     let ratingDrops = 0;
     let reviewSpikes = 0;
+    let synced = 0;
 
     for (const comp of competitors) {
-      // Simulate minor updates in metrics
-      const newRatingShift = Math.random() > 0.7 ? -0.3 : Math.random() > 0.8 ? 0.2 : 0;
-      const reviewsGrowth = Math.floor(Math.random() * 5);
+      const placeId = await this.resolvePlaceId(apiKey, comp);
+      if (!placeId) continue;
 
-      if (newRatingShift !== 0 || reviewsGrowth > 0) {
-        const updatedRating = Math.max(1.0, Math.min(5.0, parseFloat((comp.averageRating + newRatingShift).toFixed(1))));
-        const updatedReviewsCount = comp.totalReviews + reviewsGrowth;
+      let live: { rating: number; total: number } | null = null;
+      try {
+        live = await this.fetchPlaceRatingSummary(apiKey, placeId);
+      } catch (err) {
+        this.logger.error(`Sync failed for "${comp.name}": ${(err as Error).message}`);
+        continue;
+      }
+      if (!live) continue;
 
+      synced++;
+      const updatedRating = parseFloat(live.rating.toFixed(1));
+      const reviewsGrowth = Math.max(0, live.total - comp.totalReviews);
+      const ratingChanged = updatedRating !== comp.averageRating;
+
+      if (ratingChanged || reviewsGrowth > 0) {
         await this.prisma.competitor.update({
           where: { id: comp.id },
-          data: {
-            averageRating: updatedRating,
-            totalReviews: updatedReviewsCount,
-          },
+          data: { averageRating: updatedRating, totalReviews: live.total },
         });
+      }
 
-        // Trigger automations: Competitor Rating Drops
-        if (newRatingShift < 0) {
-          ratingDrops++;
-          this.logger.warn(`[Alert] Tracked competitor "${comp.name}" rating dropped to ${updatedRating}!`);
-          await this.triggerSystemNotification(
-            workspaceId,
-            `⚠️ [Competitor Alert] "${comp.name}" rating dropped from ${comp.averageRating} to ${updatedRating}! Check reviews-analysis tab to see what failed.`,
-          );
-        }
+      if (updatedRating < comp.averageRating) {
+        ratingDrops++;
+        this.logger.warn(`[Alert] "${comp.name}" rating dropped to ${updatedRating}`);
+        await this.triggerSystemNotification(
+          workspaceId,
+          `⚠️ [Competitor Alert] "${comp.name}" rating dropped from ${comp.averageRating} to ${updatedRating}! Check the reviews-analysis tab.`,
+        );
+      }
 
-        // Trigger automations: Review Spikes Alert
-        if (reviewsGrowth >= 3) {
-          reviewSpikes++;
-          this.logger.log(`[Alert] Tracked competitor "${comp.name}" is gaining reviews rapidly!`);
-          await this.triggerSystemNotification(
-            workspaceId,
-            `📈 [Competitor Spike] "${comp.name}" gained +${reviewsGrowth} reviews rapidly this week! They might be running promotions.`,
-          );
-        }
+      if (reviewsGrowth >= 3) {
+        reviewSpikes++;
+        this.logger.log(`[Alert] "${comp.name}" gained ${reviewsGrowth} reviews`);
+        await this.triggerSystemNotification(
+          workspaceId,
+          `📈 [Competitor Spike] "${comp.name}" gained +${reviewsGrowth} reviews recently. They may be running promotions.`,
+        );
       }
     }
 
     return {
       success: true,
-      competitorsSynced: competitors.length,
+      competitorsSynced: synced,
       alertsTriggered: { ratingDrops, reviewSpikes },
+    };
+  }
+
+  /** Resolve a placeId for a tracked competitor by name+location text search. */
+  private async resolvePlaceId(
+    apiKey: string,
+    comp: { name: string; location: string },
+  ): Promise<string | null> {
+    try {
+      const url = `${PLACES_TEXT_SEARCH}?query=${encodeURIComponent(`${comp.name} ${comp.location}`)}&key=${apiKey}`;
+      const res = await fetch(url);
+      const data = (await res.json()) as {
+        status?: string;
+        results?: Array<{ place_id: string }>;
+      };
+      return data.results?.[0]?.place_id ?? null;
+    } catch {
+      return null;
+    }
+  }
+
+  private async fetchPlaceRatingSummary(apiKey: string, placeId: string) {
+    const url = `${PLACE_DETAILS}?place_id=${encodeURIComponent(placeId)}&fields=rating,user_ratings_total&key=${apiKey}`;
+    const res = await fetch(url);
+    const data = (await res.json()) as {
+      status?: string;
+      error_message?: string;
+      result?: { rating?: number; user_ratings_total?: number };
+    };
+    if (data.status && data.status !== 'OK') {
+      throw new Error(data.error_message || data.status);
+    }
+    return {
+      rating: data.result?.rating ?? 0,
+      total: data.result?.user_ratings_total ?? 0,
     };
   }
 

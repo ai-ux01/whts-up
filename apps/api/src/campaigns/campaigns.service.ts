@@ -7,13 +7,17 @@ import {
   forwardRef,
 } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
-import { CampaignStatus, RecipientStatus } from '@prisma/client';
+import { CampaignStatus, RecipientStatus, Channel } from '@prisma/client';
 import { parse } from 'csv-parse/sync';
 import { normalizePhoneE164 } from '../common/utils/phone';
 import { PrismaService } from '../prisma/prisma.service';
 import { WhatsAppService } from '../whatsapp/whatsapp.service';
 import { CreateCampaignDto } from './dto/campaign.dto';
 import { QueueService } from '../queue/queue.service';
+import { SegmentsService } from '../segments/segments.service';
+import { InstagramService } from '../integrations/instagram.service';
+import { SmsService } from '../integrations/sms.service';
+import { EmailService } from '../integrations/email.service';
 
 @Injectable()
 export class CampaignsService {
@@ -25,25 +29,42 @@ export class CampaignsService {
     private config: ConfigService,
     @Inject(forwardRef(() => QueueService))
     private queueService: QueueService,
+    private segmentsService: SegmentsService,
+    private instagramService: InstagramService,
+    private smsService: SmsService,
+    private emailService: EmailService,
   ) {}
 
   private mapCampaignList(
     campaigns: Array<{
       id: string;
       name: string;
-      templateName: string;
+      templateName: string | null;
       status: CampaignStatus;
       scheduledAt: Date | null;
       createdAt: Date;
-      recipients: Array<{ status: RecipientStatus; error: string | null }>;
+      channel: Channel;
+      subject: string | null;
+      body: string | null;
+      recipients: Array<{
+        status: RecipientStatus;
+        error: string | null;
+        readAt: Date | null;
+        repliedAt: Date | null;
+        clickedAt: Date | null;
+      }>;
     }>,
   ) {
     return campaigns.map((c) => {
-      const stats = { pending: 0, sent: 0, failed: 0 };
+      const stats = { pending: 0, sent: 0, failed: 0, read: 0, replied: 0, clicked: 0 };
       for (const r of c.recipients) {
         if (r.status === RecipientStatus.PENDING) stats.pending++;
-        else if (r.status === RecipientStatus.SENT) stats.sent++;
+        else if (r.status === RecipientStatus.SENT || r.status === RecipientStatus.DELIVERED) stats.sent++;
         else if (r.status === RecipientStatus.FAILED) stats.failed++;
+
+        if (r.readAt) stats.read++;
+        if (r.repliedAt) stats.replied++;
+        if (r.clickedAt) stats.clicked++;
       }
       const lastError = c.recipients.find((r) => r.error)?.error ?? null;
       return {
@@ -53,6 +74,9 @@ export class CampaignsService {
         status: c.status,
         scheduledAt: c.scheduledAt,
         createdAt: c.createdAt,
+        channel: c.channel,
+        subject: c.subject,
+        body: c.body,
         _count: { recipients: c.recipients.length },
         recipientStats: stats,
         lastError,
@@ -65,7 +89,13 @@ export class CampaignsService {
       where: { workspaceId },
       include: {
         recipients: {
-          select: { status: true, error: true },
+          select: {
+            status: true,
+            error: true,
+            readAt: true,
+            repliedAt: true,
+            clickedAt: true,
+          },
         },
       },
       orderBy: { createdAt: 'desc' },
@@ -78,8 +108,12 @@ export class CampaignsService {
       data: {
         workspaceId,
         name: dto.name,
-        templateName: dto.templateName,
+        templateName: dto.templateName || null,
         templateParams: dto.templateParams || {},
+        segmentId: dto.segmentId || null,
+        channel: dto.channel || Channel.WHATSAPP,
+        subject: dto.subject || null,
+        body: dto.body || null,
         status: CampaignStatus.DRAFT,
       },
     });
@@ -90,6 +124,7 @@ export class CampaignsService {
       where: { id, workspaceId },
       include: {
         recipients: { orderBy: { createdAt: 'asc' } },
+        segment: true,
       },
     });
     if (!campaign) throw new NotFoundException('Campaign not found');
@@ -160,9 +195,32 @@ export class CampaignsService {
     scheduledAt?: string,
   ) {
     const campaign = await this.findOne(workspaceId, campaignId);
-    const recipientCount = campaign.recipients.length;
-    if (!recipientCount) {
-      throw new BadRequestException('Upload CSV recipients before scheduling');
+
+    if (campaign.segmentId) {
+      const contacts = await this.segmentsService.resolveSegmentContacts(workspaceId, campaign.segmentId);
+      if (!contacts.length) {
+        throw new BadRequestException('The selected segment has 0 matching contacts.');
+      }
+
+      await this.prisma.campaignRecipient.deleteMany({ where: { campaignId } });
+      await this.prisma.campaignRecipient.createMany({
+        data: contacts.map((c) => ({
+          campaignId,
+          phone: c.phone,
+          name: c.name,
+          status: RecipientStatus.PENDING,
+        })),
+      });
+
+      // Reload recipients
+      campaign.recipients = await this.prisma.campaignRecipient.findMany({
+        where: { campaignId },
+      });
+    } else {
+      const recipientCount = campaign.recipients.length;
+      if (!recipientCount) {
+        throw new BadRequestException('Upload CSV recipients before scheduling');
+      }
     }
 
     await this.prisma.campaign.update({
@@ -180,15 +238,32 @@ export class CampaignsService {
   }
 
   async sendNow(workspaceId: string, campaignId: string) {
-    await this.findOne(workspaceId, campaignId);
+    const campaign = await this.findOne(workspaceId, campaignId);
 
-    await this.prisma.campaignRecipient.updateMany({
-      where: {
-        campaignId,
-        status: { in: [RecipientStatus.FAILED, RecipientStatus.PENDING] },
-      },
-      data: { status: RecipientStatus.PENDING, error: null },
-    });
+    if (campaign.segmentId) {
+      const contacts = await this.segmentsService.resolveSegmentContacts(workspaceId, campaign.segmentId);
+      if (!contacts.length) {
+        throw new BadRequestException('The selected segment has 0 matching contacts.');
+      }
+
+      await this.prisma.campaignRecipient.deleteMany({ where: { campaignId } });
+      await this.prisma.campaignRecipient.createMany({
+        data: contacts.map((c) => ({
+          campaignId,
+          phone: c.phone,
+          name: c.name,
+          status: RecipientStatus.PENDING,
+        })),
+      });
+    } else {
+      await this.prisma.campaignRecipient.updateMany({
+        where: {
+          campaignId,
+          status: { in: [RecipientStatus.FAILED, RecipientStatus.PENDING] },
+        },
+        data: { status: RecipientStatus.PENDING, error: null },
+      });
+    }
 
     await this.prisma.campaign.update({
       where: { id: campaignId },
@@ -247,36 +322,137 @@ export class CampaignsService {
       data: { status: CampaignStatus.RUNNING, startedAt: new Date() },
     });
 
-    const params = (campaign.templateParams as Record<string, string>) || {};
-    const languageCode =
-      params._language ||
-      this.config.get<string>('WHATSAPP_TEMPLATE_LANGUAGE') ||
-      'en_US';
+    const apiBaseUrl =
+      this.config.get<string>('API_URL') ||
+      `http://localhost:${this.config.get('PORT') || 4000}/api/v1`;
 
     let sent = 0;
     let failed = 0;
 
     for (const recipient of campaign.recipients) {
       try {
-        this.logger.log(
-          `Sending template "${campaign.templateName}" to ${recipient.phone}`,
-        );
-        const sendResult = await this.whatsappService.sendTemplateMessage(
-          campaign.workspaceId,
-          recipient.phone,
-          campaign.templateName,
-          params,
-          languageCode,
-        );
-        await this.prisma.campaignRecipient.update({
-          where: { id: recipient.id },
-          data: {
-            status: RecipientStatus.SENT,
-            sentAt: new Date(),
-            error: null,
-            externalMessageId: sendResult.messageId ?? null,
-          },
-        });
+        if (campaign.channel === Channel.WHATSAPP) {
+          const params = (campaign.templateParams as Record<string, string>) || {};
+          const languageCode =
+            params._language ||
+            this.config.get<string>('WHATSAPP_TEMPLATE_LANGUAGE') ||
+            'en_US';
+
+          this.logger.log(
+            `Sending template "${campaign.templateName}" to ${recipient.phone}`,
+          );
+
+          // Dynamically wrap links and interpolate placeholders in parameters
+          const processedParams: Record<string, string> = {};
+          for (const [key, val] of Object.entries(params)) {
+            let resolvedVal = val;
+            if (val === '{{contact.name}}') {
+              resolvedVal = recipient.name || 'Customer';
+            } else if (val === '{{contact.phone}}') {
+              resolvedVal = recipient.phone;
+            }
+
+            if (resolvedVal && (resolvedVal.startsWith('http://') || resolvedVal.startsWith('https://'))) {
+              processedParams[key] = `${apiBaseUrl}/whatsapp/track/${recipient.id}?url=${encodeURIComponent(resolvedVal)}`;
+            } else {
+              processedParams[key] = resolvedVal;
+            }
+          }
+
+          const sendResult = await this.whatsappService.sendTemplateMessage(
+            campaign.workspaceId,
+            recipient.phone,
+            campaign.templateName!,
+            processedParams,
+            languageCode,
+          );
+          await this.prisma.campaignRecipient.update({
+            where: { id: recipient.id },
+            data: {
+              status: RecipientStatus.SENT,
+              sentAt: new Date(),
+              error: null,
+              externalMessageId: sendResult.messageId ?? null,
+            },
+          });
+        } else if (campaign.channel === Channel.INSTAGRAM) {
+          this.logger.log(
+            `Sending Instagram DM campaign to ${recipient.name || recipient.phone}`,
+          );
+          const processedBody = this.processTextContent(
+            campaign.body || '',
+            recipient,
+            apiBaseUrl,
+          );
+          const sendResult = await this.instagramService.sendInstagramDm(
+            campaign.workspaceId,
+            recipient.name || recipient.phone,
+            processedBody,
+          );
+          await this.prisma.campaignRecipient.update({
+            where: { id: recipient.id },
+            data: {
+              status: RecipientStatus.SENT,
+              sentAt: new Date(),
+              error: null,
+              externalMessageId: sendResult.messageId,
+            },
+          });
+        } else if (campaign.channel === Channel.SMS) {
+          this.logger.log(`Sending SMS campaign to ${recipient.phone}`);
+          const processedBody = this.processTextContent(
+            campaign.body || '',
+            recipient,
+            apiBaseUrl,
+          );
+          const sendResult = await this.smsService.sendSms(
+            campaign.workspaceId,
+            recipient.phone,
+            processedBody,
+          );
+          await this.prisma.campaignRecipient.update({
+            where: { id: recipient.id },
+            data: {
+              status: RecipientStatus.SENT,
+              sentAt: new Date(),
+              error: null,
+              externalMessageId: sendResult.messageId,
+            },
+          });
+        } else if (campaign.channel === Channel.EMAIL) {
+          const contact = await this.prisma.contact.findFirst({
+            where: { workspaceId: campaign.workspaceId, phone: recipient.phone },
+          });
+          const toEmail = (contact?.metadata as any)?.email || `${recipient.phone}@demo.com`;
+
+          this.logger.log(`Sending Email campaign to ${toEmail}`);
+          const processedSubject = this.processTextContent(
+            campaign.subject || 'Special Offer',
+            recipient,
+            apiBaseUrl,
+          );
+          const processedBody = this.processTextContent(
+            campaign.body || '',
+            recipient,
+            apiBaseUrl,
+          );
+          const sendResult = await this.emailService.sendEmail(
+            campaign.workspaceId,
+            toEmail,
+            processedSubject,
+            processedBody,
+          );
+          await this.prisma.campaignRecipient.update({
+            where: { id: recipient.id },
+            data: {
+              status: RecipientStatus.SENT,
+              sentAt: new Date(),
+              error: null,
+              externalMessageId: sendResult.messageId,
+            },
+          });
+        }
+
         sent++;
         await new Promise((r) => setTimeout(r, 1500));
       } catch (err) {
@@ -298,6 +474,19 @@ export class CampaignsService {
       },
     });
 
-    return { sent, failed, templateName: campaign.templateName };
+    return { sent, failed };
+  }
+
+  private processTextContent(text: string, recipient: { id: string; name: string | null; phone: string }, apiBaseUrl: string): string {
+    let resolvedText = text;
+    resolvedText = resolvedText.replace(/\{\{contact\.name\}\}/g, recipient.name || 'Customer');
+    resolvedText = resolvedText.replace(/\{\{contact\.phone\}\}/g, recipient.phone);
+
+    const urlRegex = /(https?:\/\/[^\s]+)/g;
+    resolvedText = resolvedText.replace(urlRegex, (url) => {
+      return `${apiBaseUrl}/whatsapp/track/${recipient.id}?url=${encodeURIComponent(url)}`;
+    });
+
+    return resolvedText;
   }
 }

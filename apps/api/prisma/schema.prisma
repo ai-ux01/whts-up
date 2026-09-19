@@ -69,6 +69,13 @@ enum AutomationAction {
   NOTIFY_ADMIN
 }
 
+enum Channel {
+  WHATSAPP
+  INSTAGRAM
+  SMS
+  EMAIL
+}
+
 model Workspace {
   id                    String          @id @default(cuid())
   name                  String
@@ -87,6 +94,7 @@ model Workspace {
   googleAdsCustomerId   String?
   facebookPixelId       String?
   instagramUsername     String?
+  googlePlaceId         String?
   defaultUtmSource      String?
   metaOAuthToken        String?
   metaOAuthExpiresAt    DateTime?
@@ -104,6 +112,7 @@ model Workspace {
   conversations   Conversation[]
   leads           Lead[]
   campaigns       Campaign[]
+  segments        Segment[]
   automationRules AutomationRule[]
   socialAccounts  SocialAccount[]
   socialPosts     SocialPost[]
@@ -172,6 +181,7 @@ model Conversation {
   automationFiredAt DateTime?
   createdAt     DateTime @default(now())
   updatedAt     DateTime @updatedAt
+  channel       Channel  @default(WHATSAPP)
 
   workspace Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
   contact   Contact   @relation(fields: [contactId], references: [id], onDelete: Cascade)
@@ -227,9 +237,13 @@ model Lead {
 model Campaign {
   id             String         @id @default(cuid())
   workspaceId    String
+  segmentId      String?
   name           String
-  templateName   String
+  templateName   String?
   templateParams Json?
+  channel        Channel        @default(WHATSAPP)
+  subject        String?
+  body           String?
   status         CampaignStatus @default(DRAFT)
   scheduledAt    DateTime?
   startedAt      DateTime?
@@ -238,6 +252,7 @@ model Campaign {
   updatedAt      DateTime       @updatedAt
 
   workspace  Workspace           @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  segment    Segment?            @relation(fields: [segmentId], references: [id], onDelete: SetNull)
   recipients CampaignRecipient[]
 
   @@index([workspaceId, status])
@@ -252,6 +267,9 @@ model CampaignRecipient {
   error             String?
   externalMessageId String?
   sentAt            DateTime?
+  readAt            DateTime?
+  repliedAt         DateTime?
+  clickedAt         DateTime?
   createdAt         DateTime        @default(now())
 
   campaign Campaign @relation(fields: [campaignId], references: [id], onDelete: Cascade)
@@ -555,6 +573,20 @@ model MarketInsight {
   createdAt     DateTime @default(now())
 
   workspace     Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+
+  @@index([workspaceId])
+}
+
+model Segment {
+  id          String   @id @default(cuid())
+  workspaceId String
+  name        String
+  filters     Json     // Filter structure: { status?: string, tags?: string[], leadSource?: string }
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  workspace   Workspace  @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  campaigns   Campaign[]
 
   @@index([workspaceId])
 }

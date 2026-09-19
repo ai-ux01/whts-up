@@ -1,4 +1,4 @@
-import { IsEmail, IsString, MinLength } from 'class-validator';
+import { IsEmail, IsOptional, IsString, MinLength } from 'class-validator';
 
 export class LoginDto {
   @IsEmail()
@@ -27,6 +27,9 @@ export class SignupDto {
 }
 
 export class RefreshTokenDto {
+  // Optional: the refresh token is normally read from the httpOnly cookie.
+  // Kept as an optional body field for backward compatibility / non-browser clients.
+  @IsOptional()
   @IsString()
-  refreshToken!: string;
+  refreshToken?: string;
 }

@@ -30,11 +30,15 @@ export class LeadsController {
     @CurrentUser() user: AuthUser,
     @Query('status') status?: LeadStatus,
     @Query('search') search?: string,
+    @Query('assignedTo') assignedTo?: string,
+    @Query('tag') tag?: string,
+    @Query('campaign') campaign?: string,
+    @Query('leadSource') leadSource?: string,
     @Res() res?: Response,
   ) {
     return this.leadsService.exportCsv(
       requireWorkspaceId(user),
-      { status, search },
+      { status, search, assignedTo, tag, campaign, leadSource },
       res!,
     );
   }
@@ -45,11 +49,17 @@ export class LeadsController {
     @Query('status') status?: LeadStatus,
     @Query('search') search?: string,
     @Query('assignedTo') assignedTo?: string,
+    @Query('tag') tag?: string,
+    @Query('campaign') campaign?: string,
+    @Query('leadSource') leadSource?: string,
   ) {
     return this.leadsService.list(requireWorkspaceId(user), {
       status,
       search,
       assignedTo,
+      tag,
+      campaign,
+      leadSource,
     });
   }
 

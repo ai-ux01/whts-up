@@ -1,4 +1,10 @@
-import { Injectable, Logger, forwardRef, Inject } from '@nestjs/common';
+import {
+  Injectable,
+  Logger,
+  forwardRef,
+  Inject,
+  OnModuleInit,
+} from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { LeadStatus, MessageSender } from '@prisma/client';
 import OpenAI from 'openai';
@@ -9,12 +15,14 @@ import { WhatsAppService } from '../whatsapp/whatsapp.service';
 import { RealtimeGateway } from '../realtime/realtime.gateway';
 
 @Injectable()
-export class AiService {
+export class AiService implements OnModuleInit {
   private readonly logger = new Logger(AiService.name);
   private client: OpenAI | null = null;
   private chatModel = 'gpt-4o-mini';
   private embeddingModel = 'nomic-embed-text';
   private useOllama = false;
+  /** Set once the provider credentials are confirmed working (null = unknown yet). */
+  private keyVerified: boolean | null = null;
 
   constructor(
     private config: ConfigService,
@@ -52,6 +60,47 @@ export class AiService {
 
   private isConfigured(): boolean {
     return this.client !== null;
+  }
+
+  /**
+   * Validate the AI provider credentials at boot with one cheap call.
+   * Non-blocking and never throws — a bad/expired key would otherwise be
+   * invisible (every AI feature silently falls back to mock). This surfaces
+   * the problem loudly in logs instead.
+   */
+  onModuleInit() {
+    if (!this.client) {
+      if (!this.useOllama) {
+        this.logger.warn(
+          'OPENAI_API_KEY not set — AI features run in mock/fallback mode (set OLLAMA_MODE=on to use local Ollama).',
+        );
+      }
+      return;
+    }
+    void this.verifyCredentials();
+  }
+
+  private async verifyCredentials() {
+    if (!this.client) return;
+    const provider = this.useOllama ? 'Ollama' : 'OpenAI';
+    try {
+      // models.list is a lightweight, no-cost auth check on both APIs.
+      await this.client.models.list();
+      this.keyVerified = true;
+      this.logger.log(`${provider} credentials verified.`);
+    } catch (err) {
+      this.keyVerified = false;
+      const detail = err instanceof Error ? err.message : String(err);
+      this.logger.error(
+        `${provider} credentials FAILED verification — all AI features will fall back to mock data. ` +
+          `Check ${this.useOllama ? 'OLLAMA_BASE_URL / ollama serve' : 'OPENAI_API_KEY'}. Detail: ${detail}`,
+      );
+    }
+  }
+
+  /** Whether the AI provider key has been confirmed working (null until checked). */
+  isKeyVerified(): boolean | null {
+    return this.keyVerified;
   }
 
   async maybeAutoReply(workspaceId: string, conversationId: string) {

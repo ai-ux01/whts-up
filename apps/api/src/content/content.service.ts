@@ -5,7 +5,9 @@ import { AiService } from '../ai/ai.service';
 import { SecretsCryptoService } from '../crypto/secrets-crypto.service';
 import { MetaOAuthService } from '../integrations/meta-oauth.service';
 import { LeadStatus } from '@prisma/client';
+import { forwardRef, Inject } from '@nestjs/common';
 import { SupabaseStorageService } from './supabase-storage.service';
+import { QueueService } from '../queue/queue.service';
 
 @Injectable()
 export class ContentService {
@@ -17,7 +19,9 @@ export class ContentService {
     private secretsCrypto: SecretsCryptoService,
     private supabaseStorageService: SupabaseStorageService,
     private config: ConfigService,
-    private metaOAuthService: MetaOAuthService
+    private metaOAuthService: MetaOAuthService,
+    @Inject(forwardRef(() => QueueService))
+    private queueService: QueueService,
   ) {}
 
   // ==========================================
@@ -77,7 +81,7 @@ export class ContentService {
     const client = this.aiService.getClient();
     const model = this.aiService.getChatModel();
 
-    let systemPrompt = `You are an elite, highly experienced copywriter and SaaS content strategist specializing in Indian SMB marketing.
+    const systemPrompt = `You are an elite, highly experienced copywriter and SaaS content strategist specializing in Indian SMB marketing.
 Your goal is to write high-impact content that triggers action and generates direct sales.
 Current Brand Voice Profile: ${voice}
 Current Signature Call-to-Action (CTA): ${cta}
@@ -292,8 +296,8 @@ For each scene, return a scene text narration (Hinglish/English), duration (4-6s
         offer: params.offer,
         script,
         voiceVoiceId: params.voiceId || 'eleven_labs_male_01',
-        videoUrl: '/assets/sample-vertical.mp4',
-        status: 'COMPLETED',
+        // No video yet — a real render must be triggered via /reels/:id/render.
+        status: 'DRAFT',
       }
     });
 
@@ -356,22 +360,42 @@ For each scene, return a scene text narration (Hinglish/English), duration (4-6s
     });
   }
 
-  async renderReel(projectId: string) {
-    const project = await this.prisma.reelProject.findUnique({
-      where: { id: projectId },
+  /**
+   * Triggers a real background render (TTS + images + FFmpeg + upload).
+   * With Redis the job is queued and this returns immediately with status
+   * GENERATING; without Redis it renders inline (blocks until done).
+   */
+  async renderReel(workspaceId: string, projectId: string) {
+    const project = await this.prisma.reelProject.findFirst({
+      where: { id: projectId, workspaceId },
     });
     if (!project) throw new NotFoundException('Project not found');
 
-    // Simulate FFmpeg/Remotion compile
-    await new Promise((resolve) => setTimeout(resolve, 3000));
+    if (project.status === 'GENERATING') {
+      return { projectId, status: 'GENERATING', message: 'Render already in progress' };
+    }
 
-    return this.prisma.reelProject.update({
+    await this.prisma.reelProject.update({
       where: { id: projectId },
-      data: {
-        videoUrl: '/assets/sample-vertical.mp4',
-        status: 'COMPLETED'
-      },
-      include: { scenes: { orderBy: { sceneNumber: 'asc' } } }
+      data: { status: 'GENERATING' },
+    });
+
+    const result = await this.queueService.enqueueReelRender(projectId);
+
+    if (result.mode === 'redis') {
+      return {
+        projectId,
+        status: 'GENERATING',
+        queued: true,
+        jobId: result.jobId,
+        message: 'Reel render queued. Poll GET /content/reels for status.',
+      };
+    }
+
+    // Inline mode: render already completed (or failed) synchronously.
+    return this.prisma.reelProject.findUnique({
+      where: { id: projectId },
+      include: { scenes: { orderBy: { sceneNumber: 'asc' } } },
     });
   }
 
@@ -577,23 +601,109 @@ For each scene, return a scene text narration (Hinglish/English), duration (4-6s
   // UNIFIED ANALYTICS VISUALIZER
   // ==========================================
 
+  /**
+   * Real analytics derived from the database:
+   *  - reach: aggregated from published SocialPost.insights (0 until posts have insights)
+   *  - crm: live lead/campaign counts
+   *  - engagementTrend: last 7 days of campaign recipient activity (sent/clicked) + new leads
+   *  - platformSplit: actual share of published posts per platform
+   * No fabricated numbers — empty datasets return zeros so the UI reflects reality.
+   */
   async getPlatformAnalytics(workspaceId: string) {
-    // Collect stats from database leads & campaigns
     const leads = await this.prisma.lead.findMany({
       where: { workspaceId },
-      select: { status: true }
+      select: { status: true },
     });
 
     const activeCampaigns = await this.prisma.campaign.count({ where: { workspaceId } });
 
-    // Format metrics
-    const stats = {
-      reach: {
-        instagramReelViews: 45290,
-        instagramFollowers: 12480,
-        facebookLikes: 8930,
-        postEngagements: 3820,
-      },
+    // --- Reach from real post insights ---
+    const publishedPosts = await this.prisma.socialPost.findMany({
+      where: { workspaceId, status: 'PUBLISHED' },
+      select: { platforms: true, insights: true },
+    });
+
+    const reach = {
+      instagramReelViews: 0,
+      instagramFollowers: 0,
+      facebookLikes: 0,
+      postEngagements: 0,
+    };
+    for (const post of publishedPosts) {
+      const ins = (post.insights as Record<string, number> | null) || {};
+      reach.instagramReelViews += Number(ins.views || ins.reelViews || 0);
+      reach.facebookLikes += Number(ins.likes || 0);
+      reach.postEngagements += Number(ins.engagements || ins.engagement || 0);
+    }
+
+    // --- 7-day engagement trend from campaign recipients + leads ---
+    const now = new Date();
+    const start = new Date(now);
+    start.setDate(start.getDate() - 6);
+    start.setHours(0, 0, 0, 0);
+
+    const [recipients, recentLeads] = await Promise.all([
+      this.prisma.campaignRecipient.findMany({
+        where: {
+          campaign: { workspaceId },
+          OR: [{ sentAt: { gte: start } }, { clickedAt: { gte: start } }],
+        },
+        select: { sentAt: true, clickedAt: true },
+      }),
+      this.prisma.lead.findMany({
+        where: { workspaceId, createdAt: { gte: start } },
+        select: { createdAt: true },
+      }),
+    ]);
+
+    const dayLabels = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
+    const buckets: Array<{ date: string; views: number; clicks: number; leads: number }> = [];
+    for (let i = 0; i < 7; i++) {
+      const d = new Date(start);
+      d.setDate(start.getDate() + i);
+      buckets.push({ date: dayLabels[d.getDay()], views: 0, clicks: 0, leads: 0 });
+    }
+    const indexFor = (d: Date) => {
+      const diff = Math.floor((d.getTime() - start.getTime()) / (24 * 3600 * 1000));
+      return diff >= 0 && diff < 7 ? diff : -1;
+    };
+    for (const r of recipients) {
+      if (r.sentAt) {
+        const idx = indexFor(r.sentAt);
+        if (idx >= 0) buckets[idx].views += 1; // messages delivered ~ impressions
+      }
+      if (r.clickedAt) {
+        const idx = indexFor(r.clickedAt);
+        if (idx >= 0) buckets[idx].clicks += 1;
+      }
+    }
+    for (const l of recentLeads) {
+      const idx = indexFor(l.createdAt);
+      if (idx >= 0) buckets[idx].leads += 1;
+    }
+
+    // --- Platform split from real published posts ---
+    const platformCounts: Record<string, number> = {};
+    for (const post of publishedPosts) {
+      for (const p of post.platforms || []) {
+        const key = p.toLowerCase().includes('insta')
+          ? 'Instagram'
+          : p.toLowerCase().includes('face')
+            ? 'Facebook'
+            : p.toLowerCase().includes('whats')
+              ? 'WhatsApp Direct'
+              : p;
+        platformCounts[key] = (platformCounts[key] || 0) + 1;
+      }
+    }
+    const totalPlatform = Object.values(platformCounts).reduce((a, b) => a + b, 0);
+    const platformSplit = Object.entries(platformCounts).map(([name, count]) => ({
+      name,
+      value: totalPlatform ? Math.round((count / totalPlatform) * 100) : 0,
+    }));
+
+    return {
+      reach,
       crm: {
         totalLeads: leads.length,
         closedDeals: leads.filter((l) => l.status === LeadStatus.CLOSED).length,
@@ -601,24 +711,10 @@ For each scene, return a scene text narration (Hinglish/English), duration (4-6s
         activeCampaigns,
       },
       charts: {
-        engagementTrend: [
-          { date: 'Mon', views: 5200, clicks: 310, leads: 18 },
-          { date: 'Tue', views: 6800, clicks: 420, leads: 25 },
-          { date: 'Wed', views: 8100, clicks: 510, leads: 32 },
-          { date: 'Thu', views: 7900, clicks: 480, leads: 29 },
-          { date: 'Fri', views: 9500, clicks: 650, leads: 41 },
-          { date: 'Sat', views: 12000, clicks: 820, leads: 54 },
-          { date: 'Sun', views: 11000, clicks: 750, leads: 48 }
-        ],
-        platformSplit: [
-          { name: 'Instagram', value: 65 },
-          { name: 'Facebook', value: 25 },
-          { name: 'WhatsApp Direct', value: 10 }
-        ]
-      }
+        engagementTrend: buckets,
+        platformSplit,
+      },
     };
-
-    return stats;
   }
 
   // ==========================================

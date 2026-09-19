@@ -31,6 +31,18 @@ export class MetaOAuthService {
     return !!(this.appId() && this.appSecret());
   }
 
+  private isProd(): boolean {
+    return this.config.get<string>('NODE_ENV') === 'production';
+  }
+
+  private assertRealOAuthInProd() {
+    if (this.isProd() && !this.isConfigured()) {
+      throw new BadRequestException(
+        'Meta integration is not configured. Set META_APP_ID and META_APP_SECRET to connect real accounts.',
+      );
+    }
+  }
+
   private appId() {
     return (
       this.config.get<string>('META_APP_ID')?.trim() ||
@@ -50,6 +62,7 @@ export class MetaOAuthService {
   }
 
   buildAuthorizeUrl(state: string): string {
+    this.assertRealOAuthInProd();
     if (!this.isConfigured()) {
       const frontendUrl = this.config.get<string>('CORS_ORIGIN') || 'http://localhost:3000';
       const origin = frontendUrl.split(',')[0].trim();
@@ -148,6 +161,7 @@ export class MetaOAuthService {
   }
 
   async handleCallback(code: string, workspaceId: string) {
+    this.assertRealOAuthInProd();
     let accessToken = 'mock_access_token';
     let expiresAt: Date | null = null;
     let assets: {

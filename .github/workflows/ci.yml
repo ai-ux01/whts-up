@@ -1,0 +1,55 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build-and-test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 9.15.0
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: pnpm
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Build shared package
+        run: pnpm --filter @whats-up/shared build
+
+      - name: Generate Prisma client
+        run: pnpm --filter api exec prisma generate
+
+      - name: Lint
+        run: pnpm lint
+
+      - name: Build API
+        run: pnpm --filter api build
+
+      - name: Build Web
+        run: pnpm --filter web build
+        env:
+          NEXT_PUBLIC_API_URL: http://localhost:4000/api/v1
+          NEXT_PUBLIC_WS_URL: http://localhost:4000
+
+      - name: Unit tests (API)
+        run: pnpm --filter api run test:unit

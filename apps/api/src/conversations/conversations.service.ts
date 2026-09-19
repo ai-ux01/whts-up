@@ -3,7 +3,7 @@ import {
   Injectable,
   NotFoundException,
 } from '@nestjs/common';
-import { MessageSender, Prisma } from '@prisma/client';
+import { MessageSender, Prisma, Channel } from '@prisma/client';
 import { normalizePhoneE164 } from '../common/utils/phone';
 import { PrismaService } from '../prisma/prisma.service';
 import {
@@ -59,6 +59,7 @@ export class ConversationsService {
           unreadCount: c.unreadCount,
           lastSender: c.lastSender,
           lastMessage: c.messages[0] || null,
+          channel: c.channel,
           ...sessionFields(lastCustomerMessageAt),
         };
       }),
@@ -66,7 +67,7 @@ export class ConversationsService {
     return enriched;
   }
 
-  async createOrGet(workspaceId: string, phone: string, name?: string) {
+  async createOrGet(workspaceId: string, phone: string, name?: string, channel?: Channel) {
     const normalized = normalizePhoneE164(phone);
     if (!normalized) {
       throw new BadRequestException('Invalid phone number');
@@ -81,7 +82,7 @@ export class ConversationsService {
     });
 
     let conversation = await this.prisma.conversation.findFirst({
-      where: { workspaceId, contactId: contact.id },
+      where: { workspaceId, contactId: contact.id, channel: channel || Channel.WHATSAPP },
       include: {
         contact: { include: { lead: { include: { assignedUser: true } } } },
         messages: { orderBy: { createdAt: 'desc' }, take: 1 },
@@ -90,7 +91,7 @@ export class ConversationsService {
 
     if (!conversation) {
       conversation = await this.prisma.conversation.create({
-        data: { workspaceId, contactId: contact.id },
+        data: { workspaceId, contactId: contact.id, channel: channel || Channel.WHATSAPP },
         include: {
           contact: { include: { lead: { include: { assignedUser: true } } } },
           messages: { orderBy: { createdAt: 'desc' }, take: 1 },
@@ -109,6 +110,7 @@ export class ConversationsService {
       unreadCount: conversation.unreadCount,
       lastSender: conversation.lastSender,
       lastMessage: conversation.messages[0] || null,
+      channel: conversation.channel,
       ...sessionFields(lastCustomerMessageAt),
     };
   }

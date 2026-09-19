@@ -12,8 +12,15 @@ import { JwtService } from '@nestjs/jwt';
 import { ConfigService } from '@nestjs/config';
 import { JwtPayload } from '../common/types';
 
+// Lock WS CORS to the same allowlist the REST API uses. `origin: true` would
+// reflect any origin with credentials. Falls back to localhost in dev.
+const wsAllowedOrigins = (process.env.CORS_ORIGIN || 'http://localhost:3000')
+  .split(',')
+  .map((o) => o.trim())
+  .filter(Boolean);
+
 @WebSocketGateway({
-  cors: { origin: true, credentials: true },
+  cors: { origin: wsAllowedOrigins, credentials: true },
   namespace: '/',
 })
 export class RealtimeGateway implements OnGatewayConnection {

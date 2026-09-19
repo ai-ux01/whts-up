@@ -68,6 +68,48 @@ export class WhatsAppService {
     private aiService: AiService,
   ) {}
 
+  isSandboxMode(accessToken: string | null): boolean {
+    const isSandboxEnv = this.config.get<string>('WHATSAPP_SANDBOX_MODE') === 'true';
+    if (isSandboxEnv) return true;
+    if (!accessToken) return true;
+    const trimmed = accessToken.trim();
+    if (
+      trimmed.startsWith('your-') ||
+      trimmed.toLowerCase().includes('placeholder') ||
+      trimmed.length < 30
+    ) {
+      return true;
+    }
+    return false;
+  }
+
+  simulateDeliveryStatuses(workspaceId: string, messageId: string, phone: string) {
+    // Schedule asynchronous status transitions
+    setTimeout(async () => {
+      try {
+        await this.processStatuses([
+          { id: messageId, status: 'sent', recipient_id: phone },
+        ]);
+
+        setTimeout(async () => {
+          await this.processStatuses([
+            { id: messageId, status: 'delivered', recipient_id: phone },
+          ]);
+
+          setTimeout(async () => {
+            await this.processStatuses([
+              { id: messageId, status: 'read', recipient_id: phone },
+            ]);
+          }, 1500);
+        }, 1000);
+      } catch (err) {
+        this.logger.error(
+          `[WhatsApp Sandbox] Error simulating statuses: ${err.message}`,
+        );
+      }
+    }, 500);
+  }
+
   /** Meta GET /webhook — returns HTTP status + body for the controller. */
   async resolveWebhookVerification(
     mode: string | undefined,
@@ -182,6 +224,28 @@ export class WhatsAppService {
     }
   }
 
+  async simulateIncomingWebhook(
+    workspaceId: string,
+    phone: string,
+    name: string | undefined,
+    message: string,
+  ) {
+    const cleanPhone = phone.replace(/\D/g, '');
+    const messageId = `wamid.mock_inbound_${crypto.randomBytes(16).toString('hex')}`;
+    const timestampStr = Math.floor(Date.now() / 1000).toString();
+
+    const mockMsg = {
+      id: messageId,
+      from: cleanPhone,
+      timestamp: timestampStr,
+      type: 'text',
+      text: { body: message },
+    };
+
+    await this.processInboundMessage(workspaceId, mockMsg, name || 'Mock Customer');
+    return { success: true, messageId };
+  }
+
   private extractMessageId(response: unknown): string | null {
     const r = response as { messages?: Array<{ id: string }> };
     return r.messages?.[0]?.id ?? null;
@@ -274,6 +338,27 @@ export class WhatsAppService {
       leadSource: contact.leadSource ?? attribution?.leadSource,
     });
 
+    // Campaign Reply Attribution
+    try {
+      const recentCampaignRecipient = await this.prisma.campaignRecipient.findFirst({
+        where: {
+          phone: contact.phone,
+          repliedAt: null,
+          campaign: { workspaceId },
+          status: RecipientStatus.DELIVERED,
+        },
+        orderBy: { createdAt: 'desc' },
+      });
+      if (recentCampaignRecipient) {
+        await this.prisma.campaignRecipient.update({
+          where: { id: recentCampaignRecipient.id },
+          data: { repliedAt: new Date() },
+        });
+      }
+    } catch (err) {
+      this.logger.warn(`Failed to attribute campaign reply: ${err.message}`);
+    }
+
     const updatedConversation = await this.conversationsService.findOne(
       workspaceId,
       conversation.id,
@@ -289,7 +374,11 @@ export class WhatsAppService {
     });
 
     // AI auto-reply
-    await this.aiService.maybeAutoReply(workspaceId, conversation.id);
+    try {
+      await this.aiService.maybeAutoReply(workspaceId, conversation.id);
+    } catch (err) {
+      this.logger.error(`AI auto-reply failed: ${err.message}`);
+    }
   }
 
   private parseMessageContent(msg: {
@@ -377,14 +466,16 @@ export class WhatsAppService {
       }
 
       const recipientStatus = this.mapRecipientStatus(status.status);
+      const isRead = status.status.toLowerCase() === 'read';
       if (recipientStatus) {
         await this.prisma.campaignRecipient.updateMany({
           where: { externalMessageId: status.id },
           data: {
             status: recipientStatus,
-            ...(recipientStatus === RecipientStatus.DELIVERED
+            ...(recipientStatus === RecipientStatus.DELIVERED && !isRead
               ? { sentAt: new Date() }
               : {}),
+            ...(isRead ? { readAt: new Date() } : {}),
           },
         });
       }
@@ -398,6 +489,16 @@ export class WhatsAppService {
   async sendTextMessage(workspaceId: string, to: string, text: string) {
     const { phoneNumberId, accessToken, tokenSource } =
       await this.workspacesService.getWhatsAppCredentials(workspaceId);
+
+    if (this.isSandboxMode(accessToken)) {
+      const messageId = `wamid.mock_${crypto.randomBytes(16).toString('hex')}`;
+      this.logger.log(
+        `[WhatsApp Sandbox] Simulating sendTextMessage to ${to}: "${text}" (messageId: ${messageId})`,
+      );
+      this.simulateDeliveryStatuses(workspaceId, messageId, to);
+      return { raw: { success: true, simulated: true }, messageId };
+    }
+
     if (!phoneNumberId || !accessToken) {
       throw new Error(
         'WhatsApp not configured. Add Phone Number ID and Access Token in Settings or apps/api/.env.',
@@ -426,6 +527,17 @@ export class WhatsAppService {
       this.logger.error(
         `WhatsApp send failed (token source: ${tokenSource}): ${err}`,
       );
+
+      const isProd = this.config.get<string>('NODE_ENV') === 'production';
+      if (!isProd) {
+        const messageId = `wamid.mock_fallback_${crypto.randomBytes(16).toString('hex')}`;
+        this.logger.warn(
+          `[WhatsApp Sandbox] Meta API failed. Falling back to simulation (messageId: ${messageId})`,
+        );
+        this.simulateDeliveryStatuses(workspaceId, messageId, to);
+        return { raw: { success: true, fallback: true }, messageId };
+      }
+
       throw new Error(formatWhatsAppApiError(err, 'text message'));
     }
 
@@ -442,6 +554,16 @@ export class WhatsAppService {
   ) {
     const { phoneNumberId, accessToken, tokenSource } =
       await this.workspacesService.getWhatsAppCredentials(workspaceId);
+
+    if (this.isSandboxMode(accessToken)) {
+      const messageId = `wamid.mock_${crypto.randomBytes(16).toString('hex')}`;
+      this.logger.log(
+        `[WhatsApp Sandbox] Simulating sendTemplateMessage to ${to} [Template: ${templateName}] (messageId: ${messageId})`,
+      );
+      this.simulateDeliveryStatuses(workspaceId, messageId, to);
+      return { raw: { success: true, simulated: true }, messageId };
+    }
+
     if (!phoneNumberId || !accessToken) {
       throw new Error('WhatsApp not configured');
     }
@@ -487,6 +609,17 @@ export class WhatsAppService {
       this.logger.error(
         `WhatsApp template failed (token source: ${tokenSource}): ${err}`,
       );
+
+      const isProd = this.config.get<string>('NODE_ENV') === 'production';
+      if (!isProd) {
+        const messageId = `wamid.mock_fallback_${crypto.randomBytes(16).toString('hex')}`;
+        this.logger.warn(
+          `[WhatsApp Sandbox] Meta API template failed. Falling back to simulation (messageId: ${messageId})`,
+        );
+        this.simulateDeliveryStatuses(workspaceId, messageId, to);
+        return { raw: { success: true, fallback: true }, messageId };
+      }
+
       throw new Error(formatWhatsAppApiError(err, 'template'));
     }
 
@@ -497,6 +630,22 @@ export class WhatsAppService {
   async listMessageTemplates(workspaceId: string) {
     const { phoneNumberId, accessToken } =
       await this.workspacesService.getWhatsAppCredentials(workspaceId);
+
+    if (this.isSandboxMode(accessToken)) {
+      return {
+        templates: [
+          { name: 'hello_world', language: 'en_US', status: 'APPROVED' },
+          {
+            name: 'service_completed_feedback',
+            language: 'en_US',
+            status: 'APPROVED',
+          },
+          { name: 'payment_reminder', language: 'en_US', status: 'APPROVED' },
+          { name: 'appointment_confirmation', language: 'en_US', status: 'APPROVED' },
+        ],
+      };
+    }
+
     if (!phoneNumberId || !accessToken) {
       throw new BadRequestException('WhatsApp not configured');
     }
@@ -506,6 +655,21 @@ export class WhatsAppService {
       { headers: { Authorization: `Bearer ${accessToken}` } },
     );
     if (!wabaRes.ok) {
+      const isProd = this.config.get<string>('NODE_ENV') === 'production';
+      if (!isProd) {
+        return {
+          templates: [
+            { name: 'hello_world', language: 'en_US', status: 'APPROVED' },
+            {
+              name: 'service_completed_feedback',
+              language: 'en_US',
+              status: 'APPROVED',
+            },
+            { name: 'payment_reminder', language: 'en_US', status: 'APPROVED' },
+            { name: 'appointment_confirmation', language: 'en_US', status: 'APPROVED' },
+          ],
+        };
+      }
       return { templates: [], error: 'Could not resolve WhatsApp Business Account' };
     }
     const wabaData = (await wabaRes.json()) as {
@@ -523,6 +687,23 @@ export class WhatsAppService {
     if (!res.ok) {
       const err = await res.text();
       this.logger.warn(`listMessageTemplates failed: ${err}`);
+
+      const isProd = this.config.get<string>('NODE_ENV') === 'production';
+      if (!isProd) {
+        return {
+          templates: [
+            { name: 'hello_world', language: 'en_US', status: 'APPROVED' },
+            {
+              name: 'service_completed_feedback',
+              language: 'en_US',
+              status: 'APPROVED',
+            },
+            { name: 'payment_reminder', language: 'en_US', status: 'APPROVED' },
+            { name: 'appointment_confirmation', language: 'en_US', status: 'APPROVED' },
+          ],
+        };
+      }
+
       return { templates: [], error: formatWhatsAppApiError(err, 'templates') };
     }
 
@@ -578,6 +759,18 @@ export class WhatsAppService {
         method: 'text' as const,
         messageId: result.messageId,
       };
+    }
+  }
+
+  async registerClick(recipientId: string) {
+    try {
+      await this.prisma.campaignRecipient.update({
+        where: { id: recipientId },
+        data: { clickedAt: new Date() },
+      });
+      this.logger.log(`Registered click for campaign recipient ${recipientId}`);
+    } catch (err) {
+      this.logger.warn(`Failed to register click for recipient ${recipientId}: ${err.message}`);
     }
   }
 }

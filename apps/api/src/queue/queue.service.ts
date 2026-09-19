@@ -15,7 +15,10 @@ import {
   AUTOMATION_QUEUE,
   CAMPAIGN_JOB_SEND,
   CAMPAIGN_QUEUE,
+  REEL_JOB_RENDER,
+  REEL_QUEUE,
 } from './queue.constants';
+import { ReelRenderService } from '../content/reel-render.service';
 import {
   buildRedisOptions,
   normalizeRedisUrl,
@@ -30,8 +33,10 @@ export class QueueService implements OnModuleInit, OnModuleDestroy {
   private connection: IORedis | null = null;
   private campaignQueue: Queue | null = null;
   private automationQueue: Queue | null = null;
+  private reelQueue: Queue | null = null;
   private campaignWorker: Worker | null = null;
   private automationWorker: Worker | null = null;
+  private reelWorker: Worker | null = null;
   private mode: QueueMode = 'inline';
 
   constructor(
@@ -82,6 +87,9 @@ export class QueueService implements OnModuleInit, OnModuleDestroy {
       this.automationQueue = new Queue(AUTOMATION_QUEUE, {
         connection: this.connection,
       });
+      this.reelQueue = new Queue(REEL_QUEUE, {
+        connection: this.connection,
+      });
 
       this.campaignWorker = new Worker(
         CAMPAIGN_QUEUE,
@@ -108,8 +116,23 @@ export class QueueService implements OnModuleInit, OnModuleDestroy {
         { connection: this.connection, concurrency: 1 },
       );
 
+      this.reelWorker = new Worker(
+        REEL_QUEUE,
+        async (job: Job<{ projectId: string }>) => {
+          const reels = this.moduleRef.get(ReelRenderService, {
+            strict: false,
+          });
+          return reels.render(job.data.projectId);
+        },
+        // Rendering is CPU/IO heavy — keep it serial to avoid overwhelming the host.
+        { connection: this.connection, concurrency: 1 },
+      );
+
       this.campaignWorker.on('failed', (job, err) => {
         this.logger.error(`Campaign job ${job?.id} failed`, err);
+      });
+      this.reelWorker.on('failed', (job, err) => {
+        this.logger.error(`Reel render job ${job?.id} failed`, err);
       });
 
       this.logger.log(`Job queues active (${url})`);
@@ -131,15 +154,19 @@ export class QueueService implements OnModuleInit, OnModuleDestroy {
   private async teardown() {
     await this.campaignWorker?.close();
     await this.automationWorker?.close();
+    await this.reelWorker?.close();
     await this.campaignQueue?.close();
     await this.automationQueue?.close();
+    await this.reelQueue?.close();
     if (this.connection?.status === 'ready' || this.connection?.status === 'connect') {
       this.connection.disconnect(false);
     }
     this.campaignWorker = null;
     this.automationWorker = null;
+    this.reelWorker = null;
     this.campaignQueue = null;
     this.automationQueue = null;
+    this.reelQueue = null;
     this.connection = null;
     this.mode = 'inline';
   }
@@ -200,6 +227,28 @@ export class QueueService implements OnModuleInit, OnModuleDestroy {
     const automation = this.moduleRef.get(AutomationService, { strict: false });
     await automation.processNoReplyRules();
     return { mode: 'inline' as const };
+  }
+
+  async enqueueReelRender(projectId: string) {
+    if (this.reelQueue) {
+      const job = await this.reelQueue.add(
+        REEL_JOB_RENDER,
+        { projectId },
+        {
+          jobId: `reel-${projectId}`,
+          removeOnComplete: 50,
+          removeOnFail: 25,
+          attempts: 2,
+          backoff: { type: 'exponential', delay: 10000 },
+        },
+      );
+      return { mode: 'redis' as const, queued: true, jobId: job.id };
+    }
+
+    // Inline fallback: render immediately (blocks the request).
+    const reels = this.moduleRef.get(ReelRenderService, { strict: false });
+    const result = await reels.render(projectId);
+    return { mode: 'inline' as const, queued: false, project: result };
   }
 
   async getCampaignJobState(campaignId: string) {

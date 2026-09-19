@@ -3,8 +3,14 @@ node_modules
 dist
 .next
 .turbo
+# Environment files — never commit real secrets. Only *.env.example is tracked.
 .env
-.env.local
+.env.*
+!.env.example
+!*.env.example
+**/.env
+**/.env.*
+!**/.env.example
 *.log
 .DS_Store
 coverage

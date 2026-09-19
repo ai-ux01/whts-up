@@ -5,7 +5,7 @@ import {
   Logger,
   forwardRef,
 } from '@nestjs/common';
-import { MessageSender, MessageType } from '@prisma/client';
+import { MessageSender, MessageType, Channel } from '@prisma/client';
 import { getLastCustomerMessageAt, sessionFields } from '../conversations/conversation-session.helper';
 import { isSessionOpen } from '../common/utils/whatsapp-session';
 import { PrismaService } from '../prisma/prisma.service';
@@ -13,6 +13,9 @@ import { ConversationsService } from '../conversations/conversations.service';
 import { WhatsAppService } from '../whatsapp/whatsapp.service';
 import { RealtimeGateway } from '../realtime/realtime.gateway';
 import { AuthUser } from '../common/types';
+import { InstagramService } from '../integrations/instagram.service';
+import { SmsService } from '../integrations/sms.service';
+import { EmailService } from '../integrations/email.service';
 
 @Injectable()
 export class MessagesService {
@@ -24,6 +27,9 @@ export class MessagesService {
     @Inject(forwardRef(() => WhatsAppService))
     private whatsappService: WhatsAppService,
     private realtime: RealtimeGateway,
+    private instagramService: InstagramService,
+    private smsService: SmsService,
+    private emailService: EmailService,
   ) {}
 
   async listMessages(workspaceId: string, conversationId: string, cursor?: string) {
@@ -56,7 +62,8 @@ export class MessagesService {
       this.prisma,
       conversationId,
     );
-    if (!forceSend && !isSessionOpen(lastCustomerMessageAt)) {
+
+    if (conversation.channel === Channel.WHATSAPP && !forceSend && !isSessionOpen(lastCustomerMessageAt)) {
       throw new BadRequestException(
         '24-hour messaging window is closed. The contact must message you first, or use an approved template in Campaigns. Pass forceSend to attempt anyway.',
       );
@@ -83,22 +90,58 @@ export class MessagesService {
     let deliveryStatus: string | null = null;
     let externalId: string | null = null;
     try {
-      const sendResult = await this.whatsappService.sendTextMessage(
-        workspaceId,
-        conversation.contact.phone,
-        content,
-      );
-      externalId = sendResult.messageId;
-      deliveryStatus = 'sent';
+      if (conversation.channel === Channel.WHATSAPP) {
+        const sendResult = await this.whatsappService.sendTextMessage(
+          workspaceId,
+          conversation.contact.phone,
+          content,
+        );
+        externalId = sendResult.messageId;
+        deliveryStatus = 'sent';
+      } else if (conversation.channel === Channel.INSTAGRAM) {
+        // Instagram Messaging API targets the recipient by IGSID (captured on
+        // inbound webhook, stored on contact metadata). Fall back to name/phone
+        // which the service will treat as an un-targetable mock send.
+        const igsid =
+          (conversation.contact.metadata as { igsid?: string } | null)?.igsid ||
+          conversation.contact.name ||
+          conversation.contact.phone;
+        const sendResult = await this.instagramService.sendInstagramDm(
+          workspaceId,
+          igsid,
+          content,
+        );
+        externalId = sendResult.messageId;
+        deliveryStatus = sendResult.status;
+      } else if (conversation.channel === Channel.SMS) {
+        const sendResult = await this.smsService.sendSms(
+          workspaceId,
+          conversation.contact.phone,
+          content,
+        );
+        externalId = sendResult.messageId;
+        deliveryStatus = sendResult.status;
+      } else if (conversation.channel === Channel.EMAIL) {
+        const toEmail = (conversation.contact.metadata as any)?.email || `${conversation.contact.phone}@demo.com`;
+        const sendResult = await this.emailService.sendEmail(
+          workspaceId,
+          toEmail,
+          `Message from ${user.name}`,
+          content,
+        );
+        externalId = sendResult.messageId;
+        deliveryStatus = sendResult.status;
+      }
+
       await this.prisma.message.update({
         where: { id: message.id },
         data: { externalId, deliveryStatus },
       });
     } catch (err) {
       deliveryError =
-        err instanceof Error ? err.message : 'Failed to send via WhatsApp';
+        err instanceof Error ? err.message : `Failed to send via ${conversation.channel}`;
       deliveryStatus = 'failed';
-      this.logger.warn(`WhatsApp delivery failed: ${deliveryError}`);
+      this.logger.warn(`${conversation.channel} delivery failed: ${deliveryError}`);
       await this.prisma.message.update({
         where: { id: message.id },
         data: {

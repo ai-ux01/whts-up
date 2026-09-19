@@ -3,7 +3,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { format } from 'date-fns';
-import { Search, Send, Plus, AlertCircle, Clock } from 'lucide-react';
+import { Search, Send, Plus, AlertCircle, Clock, Instagram, Mail, MessageSquare, MessageCircle, FlaskConical, Sparkles } from 'lucide-react';
 import { formatDistanceToNow } from 'date-fns';
 import { toast } from 'sonner';
 import { api } from '@/lib/api-client';
@@ -22,6 +22,7 @@ interface Conversation {
   lastMessageAt: string;
   contact: { id: string; name: string | null; phone: string };
   lastMessage: { content: string; sender: string } | null;
+  channel: 'WHATSAPP' | 'INSTAGRAM' | 'SMS' | 'EMAIL';
 }
 
 interface Message {
@@ -40,6 +41,7 @@ interface ConversationDetail {
   sessionWindowOpen?: boolean;
   sessionExpiresAt?: string | null;
   lastCustomerMessageAt?: string | null;
+  channel: 'WHATSAPP' | 'INSTAGRAM' | 'SMS' | 'EMAIL';
   contact: {
     name: string | null;
     phone: string;
@@ -69,8 +71,17 @@ export default function InboxPage() {
   const [messageText, setMessageText] = useState('');
   const [forceSend, setForceSend] = useState(false);
   const [newChatPhone, setNewChatPhone] = useState('');
+  const [newChatChannel, setNewChatChannel] = useState<'WHATSAPP' | 'INSTAGRAM' | 'SMS' | 'EMAIL'>('WHATSAPP');
   const [showNewChat, setShowNewChat] = useState(false);
+  const [channelFilter, setChannelFilter] = useState<'ALL' | 'WHATSAPP' | 'INSTAGRAM' | 'SMS' | 'EMAIL'>('ALL');
   const messagesEndRef = useRef<HTMLDivElement>(null);
+
+  // WhatsApp Simulator Sandbox States
+  const [isSimulatorOpen, setIsSimulatorOpen] = useState(false);
+  const [simulatorPhone, setSimulatorPhone] = useState('');
+  const [simulatorName, setSimulatorName] = useState('');
+  const [simulatorMessage, setSimulatorMessage] = useState('');
+  const [simulatorLoading, setSimulatorLoading] = useState(false);
 
   const { data: conversations = [], isLoading, isError, error } = useQuery({
     queryKey: ['conversations', search, unreadOnly],
@@ -112,7 +123,7 @@ export default function InboxPage() {
       queryClient.invalidateQueries({ queryKey: ['conversations'] });
       queryClient.invalidateQueries({ queryKey: ['conversation'] });
       if (data.deliveryError) {
-        toast.warning('Saved in inbox — WhatsApp delivery failed', {
+        toast.warning('Saved in inbox — delivery failed', {
           description: data.deliveryError,
           duration: 8000,
         });
@@ -122,10 +133,10 @@ export default function InboxPage() {
   });
 
   const newChatMutation = useMutation({
-    mutationFn: (phone: string) =>
+    mutationFn: (vars: { phone: string; channel: string }) =>
       api<Conversation>('/conversations', {
         method: 'POST',
-        body: JSON.stringify({ phone }),
+        body: JSON.stringify({ phone: vars.phone, channel: vars.channel }),
       }),
     onSuccess: (c) => {
       setShowNewChat(false);
@@ -142,6 +153,13 @@ export default function InboxPage() {
       setSelectedConversation(conversations[0].id);
     }
   }, [conversations, selectedConversationId, setSelectedConversation]);
+
+  useEffect(() => {
+    if (detail) {
+      setSimulatorPhone(detail.contact.phone);
+      setSimulatorName(detail.contact.name || '');
+    }
+  }, [detail]);
 
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
@@ -182,12 +200,30 @@ export default function InboxPage() {
     );
   }
 
+  const filteredConversations = conversations.filter((c) => {
+    if (channelFilter !== 'ALL' && c.channel !== channelFilter) return false;
+    return true;
+  });
+
+  function renderChannelIcon(channel: 'WHATSAPP' | 'INSTAGRAM' | 'SMS' | 'EMAIL') {
+    switch (channel) {
+      case 'INSTAGRAM':
+        return <Instagram className="h-3.5 w-3.5 text-pink-500 shrink-0" />;
+      case 'SMS':
+        return <MessageSquare className="h-3.5 w-3.5 text-blue-500 shrink-0" />;
+      case 'EMAIL':
+        return <Mail className="h-3.5 w-3.5 text-amber-500 shrink-0" />;
+      default:
+        return <MessageCircle className="h-3.5 w-3.5 text-emerald-500 shrink-0" />;
+    }
+  }
+
   return (
     <div className="flex h-[calc(100vh-8rem)] flex-col gap-4">
       <div className="flex items-center justify-between gap-4">
         <div>
           <h1 className="text-2xl font-bold">Inbox</h1>
-          <p className="text-muted-foreground">WhatsApp shared inbox</p>
+          <p className="text-muted-foreground">Multi-channel shared inbox</p>
         </div>
         <Button
           variant="outline"
@@ -200,17 +236,30 @@ export default function InboxPage() {
       </div>
 
       {showNewChat && (
-        <Card className="p-4 flex flex-wrap gap-2 items-end max-w-lg">
-          <div className="flex-1 min-w-[200px] space-y-1">
-            <label className="text-sm font-medium">Phone number</label>
+        <Card className="p-4 flex flex-wrap gap-3 items-end max-w-xl">
+          <div className="flex-1 min-w-[180px] space-y-1">
+            <label className="text-sm font-medium">Recipient Address / Phone</label>
             <Input
-              placeholder="9999575357 or +919999575357"
+              placeholder="e.g. +919999575357 or user@email.com"
               value={newChatPhone}
               onChange={(e) => setNewChatPhone(e.target.value)}
             />
           </div>
+          <div className="w-36 space-y-1">
+            <label className="text-sm font-medium">Channel</label>
+            <select
+              className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm focus:ring-2 focus:ring-primary outline-none font-medium"
+              value={newChatChannel}
+              onChange={(e) => setNewChatChannel(e.target.value as 'WHATSAPP' | 'INSTAGRAM' | 'SMS' | 'EMAIL')}
+            >
+              <option value="WHATSAPP">WhatsApp</option>
+              <option value="INSTAGRAM">Instagram</option>
+              <option value="SMS">SMS</option>
+              <option value="EMAIL">Email</option>
+            </select>
+          </div>
           <Button
-            onClick={() => newChatMutation.mutate(newChatPhone.trim())}
+            onClick={() => newChatMutation.mutate({ phone: newChatPhone.trim(), channel: newChatChannel })}
             disabled={!newChatPhone.trim() || newChatMutation.isPending}
           >
             Open
@@ -237,7 +286,7 @@ export default function InboxPage() {
                 onChange={(e) => setSearch(e.target.value)}
               />
             </div>
-            <label className="flex items-center gap-2 text-sm">
+            <label className="flex items-center gap-2 text-sm font-medium">
               <input
                 type="checkbox"
                 checked={unreadOnly}
@@ -245,18 +294,36 @@ export default function InboxPage() {
               />
               Unread only
             </label>
+            
+            {/* Channel Filters */}
+            <div className="flex gap-1 overflow-x-auto pb-1 mt-2 text-xs">
+              {(['ALL', 'WHATSAPP', 'INSTAGRAM', 'SMS', 'EMAIL'] as const).map((filter) => (
+                <button
+                  key={filter}
+                  type="button"
+                  onClick={() => setChannelFilter(filter)}
+                  className={cn(
+                    'px-2.5 py-1 rounded-md border border-border font-medium transition-all shrink-0 cursor-pointer',
+                    channelFilter === filter
+                      ? 'bg-primary text-primary-foreground border-primary'
+                      : 'bg-background hover:bg-muted text-muted-foreground'
+                  )}
+                >
+                  {filter === 'ALL' ? 'All' : filter === 'WHATSAPP' ? 'WA' : filter === 'INSTAGRAM' ? 'IG' : filter === 'SMS' ? 'SMS' : 'Email'}
+                </button>
+              ))}
+            </div>
           </div>
           <div className="flex-1 overflow-y-auto">
             {isLoading && (
               <p className="p-4 text-sm text-muted-foreground">Loading...</p>
             )}
-            {!isLoading && conversations.length === 0 && (
+            {!isLoading && filteredConversations.length === 0 && (
               <p className="p-4 text-sm text-muted-foreground">
-                No conversations. Start a new chat or wait for an inbound
-                WhatsApp message.
+                No conversations match this channel filter.
               </p>
             )}
-            {conversations.map((c) => (
+            {filteredConversations.map((c) => (
               <button
                 key={c.id}
                 type="button"
@@ -267,9 +334,12 @@ export default function InboxPage() {
                 )}
               >
                 <div className="flex items-center justify-between gap-2">
-                  <p className="font-medium truncate">
-                    {c.contact.name || c.contact.phone}
-                  </p>
+                  <div className="flex items-center gap-1.5 min-w-0">
+                    {renderChannelIcon(c.channel)}
+                    <p className="font-medium truncate">
+                      {c.contact.name || c.contact.phone}
+                    </p>
+                  </div>
                   {c.unreadCount > 0 && <Badge>{c.unreadCount}</Badge>}
                 </div>
                 <p className="truncate text-xs text-muted-foreground">
@@ -284,18 +354,36 @@ export default function InboxPage() {
         <div className="flex flex-1 flex-col bg-background min-w-0">
           {selectedConversationId ? (
             <>
-              <div className="border-b border-border p-4">
-                <p className="font-semibold">
-                  {detail?.contact.name || detail?.contact.phone || '…'}
-                </p>
-                <p className="text-xs text-muted-foreground">
-                  {detail?.contact.phone}
-                  {detail?.contact.leadSource && (
-                    <> · {leadSourceLabel(detail.contact.leadSource)}</>
-                  )}
-                </p>
-                {detail && (
-                  <div className="mt-1 flex items-center gap-2 flex-wrap">
+              <div className="border-b border-border p-4 flex items-center justify-between">
+                <div>
+                  <div className="flex items-center gap-2">
+                    {detail?.channel && renderChannelIcon(detail.channel)}
+                    <p className="font-semibold">
+                      {detail?.contact.name || detail?.contact.phone || '…'}
+                    </p>
+                  </div>
+                  <p className="text-xs text-muted-foreground">
+                    {detail?.contact.phone}
+                    {detail?.contact.leadSource && (
+                      <> · {leadSourceLabel(detail.contact.leadSource)}</>
+                    )}
+                  </p>
+                </div>
+                {detail?.channel === 'WHATSAPP' && (
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={() => setIsSimulatorOpen(true)}
+                    className="flex items-center gap-1.5 border-dashed border-primary/40 hover:border-primary"
+                  >
+                    <FlaskConical className="h-3.5 w-3.5 text-primary animate-pulse" />
+                    <span className="text-xs">WhatsApp Sandbox</span>
+                  </Button>
+                )}
+              </div>
+              {detail && detail.channel === 'WHATSAPP' && (
+                <div className="px-4 py-2 border-b border-border/50 bg-muted/30">
+                  <div className="flex items-center gap-2 flex-wrap">
                     <Badge
                       variant={
                         detail.sessionWindowOpen ? 'default' : 'secondary'
@@ -316,11 +404,11 @@ export default function InboxPage() {
                       </span>
                     )}
                   </div>
-                )}
-                {typingConversationId === selectedConversationId && (
-                  <p className="text-xs text-primary">typing...</p>
-                )}
-              </div>
+                </div>
+              )}
+              {typingConversationId === selectedConversationId && (
+                <p className="text-xs text-primary px-4 py-1">typing...</p>
+              )}
               <div className="flex-1 space-y-3 overflow-y-auto p-4">
                 {messagesLoading && (
                   <p className="text-sm text-muted-foreground">
@@ -329,8 +417,7 @@ export default function InboxPage() {
                 )}
                 {!messagesLoading && messages.length === 0 && (
                   <p className="text-sm text-muted-foreground">
-                    No messages yet. Send one below — the contact must message
-                    you first (24h window) or be on Meta&apos;s test allowlist.
+                    No messages yet. Send a message to start the conversation.
                   </p>
                 )}
                 {messages.map((m) => {
@@ -374,12 +461,27 @@ export default function InboxPage() {
                 })}
                 <div ref={messagesEndRef} />
               </div>
-              {detail && !detail.sessionWindowOpen && (
-                <p className="border-t border-border px-4 pt-3 text-xs text-amber-600 dark:text-amber-400">
-                  Free-text replies only work within 24 hours of the customer&apos;s
-                  last message. Use Campaigns for approved templates, or enable
-                  &quot;Force send&quot; to try anyway.
-                </p>
+              {detail && detail.channel === 'WHATSAPP' && !detail.sessionWindowOpen && (
+                <div className="border-t border-border px-4 py-2 flex flex-wrap items-center justify-between gap-2 bg-amber-500/5">
+                  <p className="text-xs text-amber-600 dark:text-amber-400">
+                    Free-text replies only work within 24 hours of the customer&apos;s
+                    last message. Use Campaigns for approved templates, or enable
+                    &quot;Force send&quot; to try anyway.
+                  </p>
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    className="h-7 text-[10px] text-amber-600 dark:text-amber-400 border-amber-500/20 hover:bg-amber-500/10 hover:text-amber-700 dark:hover:text-amber-300"
+                    onClick={() => {
+                      setSimulatorPhone(detail.contact.phone);
+                      setSimulatorName(detail.contact.name || '');
+                      setSimulatorMessage('Hi, I am replying to your message!');
+                      setIsSimulatorOpen(true);
+                    }}
+                  >
+                    Simulate customer reply
+                  </Button>
+                </div>
               )}
               <form
                 className="flex flex-col gap-2 border-t border-border p-4"
@@ -391,7 +493,7 @@ export default function InboxPage() {
                 <div className="flex gap-2">
                   <Input
                     placeholder={
-                      detail?.sessionWindowOpen
+                      detail?.channel !== 'WHATSAPP' || detail?.sessionWindowOpen
                         ? 'Type a message...'
                         : 'Window closed — template or force send'
                     }
@@ -408,13 +510,13 @@ export default function InboxPage() {
                     disabled={
                       sendMutation.isPending ||
                       !messageText.trim() ||
-                      (!detail?.sessionWindowOpen && !forceSend)
+                      (detail?.channel === 'WHATSAPP' && !detail?.sessionWindowOpen && !forceSend)
                     }
                   >
                     <Send className="h-4 w-4" />
                   </Button>
                 </div>
-                {!detail?.sessionWindowOpen && (
+                {detail?.channel === 'WHATSAPP' && !detail?.sessionWindowOpen && (
                   <label className="flex items-center gap-2 text-xs text-muted-foreground">
                     <input
                       type="checkbox"
@@ -428,9 +530,9 @@ export default function InboxPage() {
             </>
           ) : (
             <div className="flex flex-1 items-center justify-center text-muted-foreground p-6 text-center">
-              {conversations.length
+              {filteredConversations.length
                 ? 'Select a conversation'
-                : 'Create a new chat or connect WhatsApp webhook to receive messages'}
+                : 'No conversations to display'}
             </div>
           )}
         </div>
@@ -488,6 +590,113 @@ export default function InboxPage() {
               )}
             </div>
           </Card>
+        )}
+
+        {/* WhatsApp Sandbox Simulator Modal */}
+        {isSimulatorOpen && (
+          <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm p-4">
+            <Card className="w-full max-w-md border border-border/80 bg-background/95 shadow-2xl p-6 relative">
+              <button
+                onClick={() => setIsSimulatorOpen(false)}
+                className="absolute top-4 right-4 text-muted-foreground hover:text-foreground text-sm"
+              >
+                ✕
+              </button>
+
+              <div className="flex items-center gap-2 mb-2">
+                <FlaskConical className="h-5 w-5 text-primary animate-pulse" />
+                <h3 className="text-lg font-semibold">WhatsApp Webhook Simulator</h3>
+              </div>
+
+              <p className="text-xs text-muted-foreground mb-4">
+                Simulate an incoming WhatsApp message webhook to test auto-reply AI flows and CRM conversation routing.
+              </p>
+
+              <form
+                onSubmit={async (e) => {
+                  e.preventDefault();
+                  if (!simulatorPhone.trim() || !simulatorMessage.trim()) {
+                    toast.error('Phone and message content are required');
+                    return;
+                  }
+                  setSimulatorLoading(true);
+                  try {
+                    await api('/whatsapp/simulate-incoming', {
+                      method: 'POST',
+                      body: JSON.stringify({
+                        phone: simulatorPhone.trim(),
+                        name: simulatorName.trim() || undefined,
+                        message: simulatorMessage.trim(),
+                      }),
+                    });
+                    toast.success('Simulated customer message dispatched!');
+                    setSimulatorMessage('');
+                    setIsSimulatorOpen(false);
+
+                    // Refresh inbox lists
+                    queryClient.invalidateQueries({ queryKey: ['conversations'] });
+                    if (selectedConversationId) {
+                      queryClient.invalidateQueries({ queryKey: ['messages', selectedConversationId] });
+                      queryClient.invalidateQueries({ queryKey: ['conversation', selectedConversationId] });
+                    }
+                  } catch (err) {
+                    const msg = err instanceof Error ? err.message : 'Simulation failed';
+                    toast.error(msg);
+                  } finally {
+                    setSimulatorLoading(false);
+                  }
+                }}
+                className="space-y-4 text-left"
+              >
+                <div className="space-y-1">
+                  <label className="text-xs font-semibold text-muted-foreground">Customer Phone Number</label>
+                  <Input
+                    placeholder="e.g. +919999123456"
+                    value={simulatorPhone}
+                    onChange={(e) => setSimulatorPhone(e.target.value)}
+                    required
+                  />
+                </div>
+
+                <div className="space-y-1">
+                  <label className="text-xs font-semibold text-muted-foreground">Customer Name (Optional)</label>
+                  <Input
+                    placeholder="e.g. Rohan Sharma"
+                    value={simulatorName}
+                    onChange={(e) => setSimulatorName(e.target.value)}
+                  />
+                </div>
+
+                <div className="space-y-1">
+                  <label className="text-xs font-semibold text-muted-foreground">Message Content</label>
+                  <textarea
+                    placeholder="Type message text here..."
+                    rows={3}
+                    className="w-full text-sm bg-background border border-input rounded-md px-3 py-2 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
+                    value={simulatorMessage}
+                    onChange={(e) => setSimulatorMessage(e.target.value)}
+                    required
+                  />
+                </div>
+
+                <div className="flex gap-2 justify-end pt-2">
+                  <Button type="button" variant="outline" onClick={() => setIsSimulatorOpen(false)}>
+                    Cancel
+                  </Button>
+                  <Button type="submit" disabled={simulatorLoading} className="flex items-center gap-1.5">
+                    {simulatorLoading ? (
+                      <span>Sending...</span>
+                    ) : (
+                      <>
+                        <Sparkles className="h-4 w-4" />
+                        <span>Simulate Message</span>
+                      </>
+                    )}
+                  </Button>
+                </div>
+              </form>
+            </Card>
+          </div>
         )}
       </div>
     </div>

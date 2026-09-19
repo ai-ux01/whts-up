@@ -19,7 +19,8 @@ RUN pnpm --filter api exec prisma generate
 RUN pnpm --filter api build
 
 FROM base AS runner
-RUN apk add --no-cache openssl wget
+# ffmpeg: required by the reel render pipeline to compile MP4s
+RUN apk add --no-cache openssl wget ffmpeg
 ENV NODE_ENV=production
 # Keep monorepo layout so pnpm symlinks (apps/api/node_modules → ../../node_modules/.pnpm) resolve
 WORKDIR /app/apps/api

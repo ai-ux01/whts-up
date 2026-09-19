@@ -8,7 +8,7 @@
     "start": "node dist/src/main",
     "start:prod": "node dist/src/main",
     "lint": "eslint \"src/**/*.ts\"",
-    "test:unit": "ts-node src/common/utils/whatsapp-session.spec.ts && ts-node src/crypto/secrets-crypto.spec.ts",
+    "test:unit": "ts-node src/common/utils/whatsapp-session.spec.ts && ts-node src/crypto/secrets-crypto.spec.ts && ts-node src/campaigns/campaigns-interpolation.spec.ts && ts-node src/campaigns/multi-channel-routing.spec.ts && ts-node src/integrations/messaging.util.spec.ts",
     "db:seed": "prisma db seed"
   },
   "dependencies": {
@@ -23,17 +23,19 @@
     "@nestjs/throttler": "^6.4.0",
     "@nestjs/websockets": "^11.0.12",
     "@prisma/client": "^6.8.2",
-    "prisma": "^6.8.2",
     "@whats-up/shared": "workspace:*",
-    "bullmq": "^5.49.2",
     "bcrypt": "^5.1.1",
+    "bullmq": "^5.49.2",
     "class-transformer": "^0.5.1",
     "class-validator": "^0.14.2",
     "csv-parse": "^5.6.0",
+    "express": "^5.1.0",
+    "helmet": "^8.3.0",
     "ioredis": "^5.6.1",
     "openai": "^4.98.0",
     "passport": "^0.7.0",
     "passport-jwt": "^4.0.1",
+    "prisma": "^6.8.2",
     "reflect-metadata": "^0.2.2",
     "rxjs": "^7.8.2",
     "socket.io": "^4.8.1"
@@ -41,16 +43,16 @@
   "devDependencies": {
     "@eslint/js": "^9.27.0",
     "@nestjs/cli": "^11.0.6",
-    "eslint": "^9.27.0",
-    "typescript-eslint": "^8.32.1",
     "@nestjs/schematics": "^11.0.5",
     "@types/bcrypt": "^5.0.2",
     "@types/express": "^5.0.1",
     "@types/multer": "^1.4.12",
     "@types/node": "^22.15.3",
     "@types/passport-jwt": "^4.0.1",
+    "eslint": "^9.27.0",
     "ts-node": "^10.9.2",
-    "typescript": "^5.8.3"
+    "typescript": "^5.8.3",
+    "typescript-eslint": "^8.32.1"
   },
   "prisma": {
     "seed": "ts-node prisma/seed.ts"

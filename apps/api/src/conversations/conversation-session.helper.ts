@@ -4,8 +4,10 @@ import {
   sessionExpiresAt,
 } from '../common/utils/whatsapp-session';
 
+type FindFirstFn = (args: unknown) => Promise<{ createdAt: Date } | null>;
+
 export async function getLastCustomerMessageAt(
-  prisma: { message: { findFirst: Function } },
+  prisma: { message: { findFirst: FindFirstFn } },
   conversationId: string,
 ): Promise<Date | null> {
   const last = await prisma.message.findFirst({

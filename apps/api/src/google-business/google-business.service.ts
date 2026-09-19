@@ -1,5 +1,8 @@
-import { Injectable, Logger } from '@nestjs/common';
+import { BadRequestException, Injectable, Logger } from '@nestjs/common';
+import { ConfigService } from '@nestjs/config';
 import { PrismaService } from '../prisma/prisma.service';
+
+const PLACE_DETAILS = 'https://maps.googleapis.com/maps/api/place/details/json';
 
 @Injectable()
 export class GoogleBusinessService {
@@ -57,15 +60,101 @@ export class GoogleBusinessService {
     },
   ];
 
-  constructor(private prisma: PrismaService) {}
+  constructor(
+    private prisma: PrismaService,
+    private config: ConfigService,
+  ) {}
+
+  private isProd(): boolean {
+    return this.config.get<string>('NODE_ENV') === 'production';
+  }
 
   /**
-   * Syncs reviews from Google. If real API keys aren't present,
-   * falls back to generating highly realistic local mock entries.
+   * Syncs reviews from Google.
+   *
+   * Live path: when GOOGLE_PLACES_API_KEY is set and the workspace has a
+   * googlePlaceId, fetches real reviews via the Google Place Details API.
+   * Fallback: seeds a curated demo dataset (clearly logged) so the feature
+   * is explorable without credentials.
    */
   async syncGoogleReviews(workspaceId: string): Promise<number> {
     this.logger.log(`Syncing Google Business Profile reviews for workspace ${workspaceId}...`);
 
+    const apiKey = this.config.get<string>('GOOGLE_PLACES_API_KEY')?.trim();
+    const workspace = await this.prisma.workspace.findUnique({
+      where: { id: workspaceId },
+      select: { googlePlaceId: true },
+    });
+
+    if (apiKey && workspace?.googlePlaceId) {
+      // Live path. In production, surface failures instead of masking with demo data.
+      try {
+        return await this.syncLiveReviews(workspaceId, apiKey, workspace.googlePlaceId);
+      } catch (err) {
+        this.logger.error(`Live Google review sync failed: ${(err as Error).message}`);
+        if (this.isProd()) {
+          throw new BadRequestException(
+            'Google review sync failed. Check GOOGLE_PLACES_API_KEY and the workspace Google Place ID.',
+          );
+        }
+        this.logger.warn('Falling back to demo data (non-production).');
+      }
+    } else if (this.isProd()) {
+      // Do NOT silently seed fake reviews in production.
+      throw new BadRequestException(
+        'Google reviews are not configured. Set GOOGLE_PLACES_API_KEY and connect a Google Place ID for this workspace.',
+      );
+    } else {
+      this.logger.warn(
+        'GOOGLE_PLACES_API_KEY or workspace googlePlaceId missing — seeding demo reviews (non-production only).',
+      );
+    }
+
+    return this.seedDemoReviews(workspaceId);
+  }
+
+  private async syncLiveReviews(
+    workspaceId: string,
+    apiKey: string,
+    placeId: string,
+  ): Promise<number> {
+    const url = `${PLACE_DETAILS}?place_id=${encodeURIComponent(placeId)}&fields=reviews&key=${apiKey}`;
+    const res = await fetch(url);
+    const data = (await res.json()) as {
+      status?: string;
+      error_message?: string;
+      result?: {
+        reviews?: Array<{ author_name: string; rating: number; text: string; time: number }>;
+      };
+    };
+    if (data.status && data.status !== 'OK') {
+      throw new Error(data.error_message || data.status);
+    }
+
+    let syncCount = 0;
+    for (const rv of data.result?.reviews || []) {
+      const existing = await this.prisma.googleReview.findFirst({
+        where: { workspaceId, author: rv.author_name, reviewText: rv.text },
+      });
+      if (existing) continue;
+
+      await this.prisma.googleReview.create({
+        data: {
+          workspaceId,
+          author: rv.author_name,
+          rating: rv.rating,
+          reviewText: rv.text,
+          reviewDate: new Date(rv.time * 1000),
+          sentiment: rv.rating >= 4 ? 'POSITIVE' : rv.rating <= 2 ? 'NEGATIVE' : 'NEUTRAL',
+        },
+      });
+      syncCount++;
+    }
+    this.logger.log(`Live sync complete! Inserted ${syncCount} new Google reviews.`);
+    return syncCount;
+  }
+
+  private async seedDemoReviews(workspaceId: string): Promise<number> {
     let syncCount = 0;
 
     for (const r of this.mockIndianReviews) {

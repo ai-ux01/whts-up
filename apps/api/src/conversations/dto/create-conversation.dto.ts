@@ -1,4 +1,5 @@
-import { IsOptional, IsString, MinLength } from 'class-validator';
+import { IsOptional, IsString, MinLength, IsEnum } from 'class-validator';
+import { Channel } from '@prisma/client';
 
 export class CreateConversationDto {
   @IsString()
@@ -8,4 +9,8 @@ export class CreateConversationDto {
   @IsOptional()
   @IsString()
   name?: string;
+
+  @IsOptional()
+  @IsEnum(Channel)
+  channel?: Channel;
 }

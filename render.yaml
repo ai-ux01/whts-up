@@ -29,19 +29,80 @@ services:
         generateValue: true
       - key: CORS_ORIGIN
         sync: false
+      - key: API_URL
+        sync: false
+      - key: NEXT_PUBLIC_APP_URL
+        sync: false
       - key: PUBLIC_WEBHOOK_BASE_URL
         sync: false
+      # --- WhatsApp (Meta Cloud API) ---
       - key: WHATSAPP_VERIFY_TOKEN
         sync: false
       - key: WHATSAPP_PHONE_NUMBER_ID
         sync: false
       - key: WHATSAPP_ACCESS_TOKEN
         sync: false
+      - key: WHATSAPP_TEMPLATE_LANGUAGE
+        value: en_US
+      # --- Meta / Google OAuth ---
+      - key: META_APP_ID
+        sync: false
       - key: META_APP_SECRET
         sync: false
+      - key: META_OAUTH_REDIRECT_URI
+        sync: false
+      - key: GOOGLE_CLIENT_ID
+        sync: false
+      - key: GOOGLE_CLIENT_SECRET
+        sync: false
+      - key: GOOGLE_OAUTH_REDIRECT_URI
+        sync: false
+      - key: GOOGLE_PLACES_API_KEY
+        sync: false
+      # --- AI ---
       - key: OPENAI_API_KEY
         sync: false
+      # --- Reel render pipeline (TTS) ---
+      - key: ELEVENLABS_API_KEY
+        sync: false
+      - key: ELEVENLABS_DEFAULT_VOICE_ID
+        sync: false
+      # --- SMS provider (optional; mock if unset) ---
+      - key: SMS_PROVIDER
+        sync: false
+      - key: TWILIO_ACCOUNT_SID
+        sync: false
+      - key: TWILIO_AUTH_TOKEN
+        sync: false
+      - key: TWILIO_SMS_FROM
+        sync: false
+      - key: MSG91_AUTH_KEY
+        sync: false
+      - key: MSG91_SENDER_ID
+        sync: false
+      # --- Email provider (optional; mock if unset) ---
+      - key: EMAIL_PROVIDER
+        sync: false
+      - key: EMAIL_FROM
+        sync: false
+      - key: RESEND_API_KEY
+        sync: false
+      - key: SENDGRID_API_KEY
+        sync: false
+      # --- Media storage (Supabase) ---
+      - key: SUPABASE_URL
+        sync: false
+      - key: SUPABASE_SERVICE_ROLE_KEY
+        sync: false
+      - key: SUPABASE_STORAGE_BUCKET
+        value: growth-media
+      # --- Crypto / queue ---
+      # IMPORTANT: set ENCRYPTION_KEY ONCE (openssl rand -base64 32) and never rotate
+      # casually — changing it makes all previously encrypted DB tokens undecryptable.
+      # Managed manually (sync:false) rather than generated, so redeploys keep it stable.
       - key: ENCRYPTION_KEY
-        generateValue: true
+        sync: false
+      - key: SENTRY_DSN
+        sync: false
       - key: REDIS_URL
         sync: false

@@ -6,6 +6,23 @@ import { CurrentUser } from '../common/decorators/current-user.decorator';
 import { AuthUser } from '../common/types';
 import { requireWorkspaceId } from '../common/utils/workspace-id';
 import { ContentService } from './content.service';
+import {
+  ConnectSocialAccountDto,
+  CreateReelDto,
+  GenerateContentDto,
+  GenerateIdeasDto,
+  GenerateResearchDto,
+  SchedulePostDto,
+  UpdateBrandKitDto,
+  UploadMediaMetaDto,
+} from './dto/content.dto';
+
+interface UploadedFileLike {
+  buffer: Buffer;
+  originalname: string;
+  mimetype: string;
+  size: number;
+}
 
 @Controller('content')
 @UseGuards(JwtAuthGuard, ClientUserGuard)
@@ -22,7 +39,7 @@ export class ContentController {
   }
 
   @Patch('brand-kit')
-  updateBrandKit(@CurrentUser() user: AuthUser, @Body() body: any) {
+  updateBrandKit(@CurrentUser() user: AuthUser, @Body() body: UpdateBrandKitDto) {
     return this.contentService.updateBrandKit(requireWorkspaceId(user), body);
   }
 
@@ -31,12 +48,12 @@ export class ContentController {
   // ==========================================
 
   @Post('studio/generate')
-  generateContent(@CurrentUser() user: AuthUser, @Body() body: { type: string; topic: string; tone?: string; language?: string }) {
+  generateContent(@CurrentUser() user: AuthUser, @Body() body: GenerateContentDto) {
     return this.contentService.generateContent(requireWorkspaceId(user), body);
   }
 
   @Post('ideas/generate')
-  generateIdeas(@CurrentUser() user: AuthUser, @Body() body: { niche: string }) {
+  generateIdeas(@CurrentUser() user: AuthUser, @Body() body: GenerateIdeasDto) {
     return this.contentService.generateIdeas(requireWorkspaceId(user), body);
   }
 
@@ -45,7 +62,7 @@ export class ContentController {
   // ==========================================
 
   @Post('reels')
-  createReelProject(@CurrentUser() user: AuthUser, @Body() body: { title: string; niche: string; offer: string; voiceId?: string }) {
+  createReelProject(@CurrentUser() user: AuthUser, @Body() body: CreateReelDto) {
     return this.contentService.createReelProject(requireWorkspaceId(user), body);
   }
 
@@ -55,8 +72,9 @@ export class ContentController {
   }
 
   @Post('reels/:id/render')
-  renderReel(@Param('id') id: string) {
-    return this.contentService.renderReel(id);
+  renderReel(@CurrentUser() user: AuthUser, @Param('id') id: string) {
+    // Scope render to the caller's workspace to prevent cross-tenant triggering.
+    return this.contentService.renderReel(requireWorkspaceId(user), id);
   }
 
   // ==========================================
@@ -72,8 +90,9 @@ export class ContentController {
   @UseInterceptors(FileInterceptor('file'))
   uploadMediaAsset(
     @CurrentUser() user: AuthUser,
-    @UploadedFile() file?: any,
-    @Body() body?: { name?: string; url?: string; type?: string; size?: number; folder?: string }
+    @UploadedFile() file?: UploadedFileLike,
+    // Multipart form fields are not validated by the global pipe; parsed leniently.
+    @Body() body?: UploadMediaMetaDto,
   ) {
     const workspaceId = requireWorkspaceId(user);
     if (file) {
@@ -98,7 +117,7 @@ export class ContentController {
   }
 
   @Post('calendar')
-  schedulePost(@CurrentUser() user: AuthUser, @Body() body: { title: string; content: string; scheduledAt: string; platform: string }) {
+  schedulePost(@CurrentUser() user: AuthUser, @Body() body: SchedulePostDto) {
     return this.contentService.schedulePost(requireWorkspaceId(user), body);
   }
 
@@ -110,13 +129,7 @@ export class ContentController {
   @Post('social-accounts')
   connectSocialAccount(
     @CurrentUser() user: AuthUser,
-    @Body() body: {
-      platform: string;
-      accountId: string;
-      accountName: string;
-      accessToken: string;
-      profilePicture?: string;
-    }
+    @Body() body: ConnectSocialAccountDto,
   ) {
     return this.contentService.connectSocialAccount(requireWorkspaceId(user), body);
   }
@@ -135,7 +148,7 @@ export class ContentController {
   // ==========================================
 
   @Post('research')
-  generateResearch(@CurrentUser() user: AuthUser, @Body() body: { topic: string; niche: string }) {
+  generateResearch(@CurrentUser() user: AuthUser, @Body() body: GenerateResearchDto) {
     return this.contentService.generateResearch(requireWorkspaceId(user), body);
   }
 

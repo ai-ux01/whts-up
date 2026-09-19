@@ -306,9 +306,19 @@ export class WorkspacesService {
   }
 
   async findByPhoneNumberId(phoneNumberId: string) {
-    return this.prisma.workspace.findFirst({
+    const workspace = await this.prisma.workspace.findFirst({
       where: { whatsappPhoneNumberId: phoneNumberId },
     });
+    if (workspace) return workspace;
+
+    const envPhoneId = this.config.get<string>('WHATSAPP_PHONE_NUMBER_ID')?.trim();
+    if (envPhoneId && phoneNumberId === envPhoneId) {
+      return this.prisma.workspace.findFirst({
+        orderBy: { createdAt: 'asc' },
+      });
+    }
+
+    return null;
   }
 
   async testWhatsApp(workspaceId: string, phone: string, message?: string) {

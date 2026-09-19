@@ -27,6 +27,7 @@ export class ConversationsController {
       requireWorkspaceId(user),
       dto.phone,
       dto.name,
+      dto.channel,
     );
   }
 

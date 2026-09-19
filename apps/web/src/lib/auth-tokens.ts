@@ -1,42 +1,46 @@
 export type AuthPortal = 'client' | 'platform';
 
+// Only the SHORT-LIVED access token is kept client-side (in localStorage).
+// The refresh token now lives in an httpOnly cookie set by the API and is
+// never accessible to JavaScript (mitigates XSS token theft).
 const KEYS = {
-  client: { access: 'accessToken', refresh: 'refreshToken' },
-  platform: { access: 'adminAccessToken', refresh: 'adminRefreshToken' },
+  client: { access: 'accessToken' },
+  platform: { access: 'adminAccessToken' },
 } as const;
 
+// Legacy refresh-token keys to clean up from older sessions.
+const LEGACY_REFRESH_KEYS = ['refreshToken', 'adminRefreshToken'] as const;
+
 export function getTokens(portal: AuthPortal) {
-  if (typeof window === 'undefined') return { access: null, refresh: null };
-  const k = KEYS[portal];
-  return {
-    access: localStorage.getItem(k.access),
-    refresh: localStorage.getItem(k.refresh),
-  };
+  if (typeof window === 'undefined') return { access: null };
+  return { access: localStorage.getItem(KEYS[portal].access) };
 }
 
+/**
+ * Store the access token. `refreshToken` is accepted for backward-compatible
+ * call sites but is intentionally ignored — it is managed via httpOnly cookie.
+ */
 export function setTokens(
   portal: AuthPortal,
   accessToken: string,
-  refreshToken: string,
+  _refreshToken?: string,
 ) {
   if (typeof window === 'undefined') return;
-  const k = KEYS[portal];
-  localStorage.setItem(k.access, accessToken);
-  localStorage.setItem(k.refresh, refreshToken);
-  // Clear the other portal so sessions do not mix
+  localStorage.setItem(KEYS[portal].access, accessToken);
+  // Clear the other portal so sessions do not mix.
   const other = portal === 'client' ? KEYS.platform : KEYS.client;
   localStorage.removeItem(other.access);
-  localStorage.removeItem(other.refresh);
+  // Remove any stale refresh tokens from before the cookie migration.
+  for (const k of LEGACY_REFRESH_KEYS) localStorage.removeItem(k);
 }
 
 export function clearTokens(portal: AuthPortal) {
   if (typeof window === 'undefined') return;
-  const k = KEYS[portal];
-  localStorage.removeItem(k.access);
-  localStorage.removeItem(k.refresh);
+  localStorage.removeItem(KEYS[portal].access);
 }
 
 export function clearAllTokens() {
   clearTokens('client');
   clearTokens('platform');
+  for (const k of LEGACY_REFRESH_KEYS) localStorage.removeItem(k);
 }

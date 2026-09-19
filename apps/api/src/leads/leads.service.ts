@@ -9,12 +9,38 @@ export class LeadsService {
 
   async list(
     workspaceId: string,
-    params: { status?: LeadStatus; search?: string; assignedTo?: string },
+    params: {
+      status?: LeadStatus;
+      search?: string;
+      assignedTo?: string;
+      tag?: string;
+      campaign?: string;
+      leadSource?: string;
+    },
   ) {
     const where: Prisma.LeadWhereInput = { workspaceId };
 
     if (params.status) where.status = params.status;
-    if (params.assignedTo) where.assignedUserId = params.assignedTo;
+
+    if (params.assignedTo) {
+      if (params.assignedTo === 'unassigned') {
+        where.assignedUserId = null;
+      } else {
+        where.assignedUserId = params.assignedTo;
+      }
+    }
+
+    if (params.tag) {
+      where.tags = { has: params.tag };
+    }
+
+    if (params.leadSource || params.campaign) {
+      where.contact = {
+        ...(params.leadSource ? { leadSource: params.leadSource } : {}),
+        ...(params.campaign ? { utmCampaign: params.campaign } : {}),
+      };
+    }
+
     if (params.search) {
       where.OR = [
         { contact: { name: { contains: params.search, mode: 'insensitive' } } },
@@ -81,7 +107,14 @@ export class LeadsService {
 
   async exportCsv(
     workspaceId: string,
-    params: { status?: LeadStatus; search?: string },
+    params: {
+      status?: LeadStatus;
+      search?: string;
+      assignedTo?: string;
+      tag?: string;
+      campaign?: string;
+      leadSource?: string;
+    },
     res: Response,
   ) {
     const leads = await this.list(workspaceId, params);

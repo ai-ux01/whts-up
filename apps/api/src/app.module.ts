@@ -32,6 +32,7 @@ import { ReviewsAnalysisModule } from './reviews-analysis/reviews-analysis.modul
 import { InsightsModule } from './insights/insights.module';
 import { AIRecommendationsModule } from './ai-recommendations/ai-recommendations.module';
 import { ReportingModule } from './reporting/reporting.module';
+import { SegmentsModule } from './segments/segments.module';
 
 @Module({
   imports: [
@@ -72,6 +73,7 @@ import { ReportingModule } from './reporting/reporting.module';
     InsightsModule,
     AIRecommendationsModule,
     ReportingModule,
+    SegmentsModule,
   ],
   providers: [
     {

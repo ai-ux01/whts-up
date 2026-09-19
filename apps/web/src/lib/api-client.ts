@@ -7,6 +7,18 @@ import {
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:4000/api/v1';
 
+// Guard against shipping a production build that silently points at localhost.
+if (
+  process.env.NODE_ENV === 'production' &&
+  !process.env.NEXT_PUBLIC_API_URL &&
+  typeof window !== 'undefined'
+) {
+  // eslint-disable-next-line no-console
+  console.error(
+    'NEXT_PUBLIC_API_URL is not set — API calls will target localhost:4000 and fail in production.',
+  );
+}
+
 type RequestOptions = RequestInit & {
   skipAuth?: boolean;
   portal?: AuthPortal;
@@ -18,18 +30,17 @@ function detectPortal(path: string, explicit?: AuthPortal): AuthPortal {
 }
 
 async function refreshAccessToken(portal: AuthPortal): Promise<string | null> {
-  const { refresh } = getTokens(portal);
-  if (!refresh) return null;
-
+  // Refresh token is sent automatically via the httpOnly cookie.
   const res = await fetch(`${API_URL}/auth/refresh`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ refreshToken: refresh }),
+    credentials: 'include',
+    body: '{}',
   });
 
   if (!res.ok) return null;
   const data = await res.json();
-  setTokens(portal, data.accessToken, data.refreshToken);
+  setTokens(portal, data.accessToken);
   return data.accessToken;
 }
 
@@ -51,13 +62,33 @@ export async function api<T>(
     if (access) headers.Authorization = `Bearer ${access}`;
   }
 
-  let res = await fetch(`${API_URL}${path}`, { ...options, headers });
+  let res = await fetch(`${API_URL}${path}`, {
+    ...options,
+    headers,
+    credentials: 'include',
+  });
 
   if (res.status === 401 && !options.skipAuth) {
     const newToken = await refreshAccessToken(portal);
     if (newToken) {
       headers.Authorization = `Bearer ${newToken}`;
-      res = await fetch(`${API_URL}${path}`, { ...options, headers });
+      res = await fetch(`${API_URL}${path}`, {
+        ...options,
+        headers,
+        credentials: 'include',
+      });
+    } else {
+      // Refresh failed (expired/missing session). Clear the dead session and
+      // send the user back to the right login screen instead of looping on 401.
+      clearTokens(portal);
+      if (typeof window !== 'undefined') {
+        // Expire the readable session marker so middleware also treats us as logged out.
+        document.cookie = 'hasSession=; Max-Age=0; path=/';
+        const loginPath = portal === 'platform' ? '/admin/login' : '/login';
+        if (!window.location.pathname.startsWith(loginPath)) {
+          window.location.assign(loginPath);
+        }
+      }
     }
   }
 
