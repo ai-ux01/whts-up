@@ -44,6 +44,12 @@ services:
         sync: false
       - key: WHATSAPP_TEMPLATE_LANGUAGE
         value: en_US
+      # Leave WHATSAPP_SANDBOX_MODE OFF in production so real sends are attempted.
+      - key: WHATSAPP_SANDBOX_MODE
+        value: "false"
+      # Template used by the Settings "test WhatsApp" button.
+      - key: WHATSAPP_TEST_TEMPLATE
+        value: hello_world
       # --- Meta / Google OAuth ---
       - key: META_APP_ID
         sync: false
