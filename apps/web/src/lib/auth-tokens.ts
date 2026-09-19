@@ -32,15 +32,34 @@ export function setTokens(
   localStorage.removeItem(other.access);
   // Remove any stale refresh tokens from before the cookie migration.
   for (const k of LEGACY_REFRESH_KEYS) localStorage.removeItem(k);
+  // Set the route-gating marker on the FRONTEND'S OWN domain so Next.js
+  // middleware can read it. The API's cross-domain cookie never reaches the
+  // web domain (Vercel), so the frontend owns this marker.
+  setSessionMarker(portal);
 }
 
 export function clearTokens(portal: AuthPortal) {
   if (typeof window === 'undefined') return;
   localStorage.removeItem(KEYS[portal].access);
+  clearSessionMarker();
 }
 
 export function clearAllTokens() {
   clearTokens('client');
   clearTokens('platform');
   for (const k of LEGACY_REFRESH_KEYS) localStorage.removeItem(k);
+  clearSessionMarker();
+}
+
+/** Non-sensitive marker cookie (portal name only) read by Next.js middleware. */
+export function setSessionMarker(portal: AuthPortal) {
+  if (typeof document === 'undefined') return;
+  const secure = window.location.protocol === 'https:' ? '; Secure' : '';
+  const maxAge = 7 * 24 * 60 * 60; // 7 days
+  document.cookie = `hasSession=${portal}; Path=/; Max-Age=${maxAge}; SameSite=Lax${secure}`;
+}
+
+export function clearSessionMarker() {
+  if (typeof document === 'undefined') return;
+  document.cookie = 'hasSession=; Path=/; Max-Age=0; SameSite=Lax';
 }

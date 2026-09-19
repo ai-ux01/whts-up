@@ -80,10 +80,9 @@ export async function api<T>(
     } else {
       // Refresh failed (expired/missing session). Clear the dead session and
       // send the user back to the right login screen instead of looping on 401.
+      // clearTokens also expires the hasSession marker cookie the middleware reads.
       clearTokens(portal);
       if (typeof window !== 'undefined') {
-        // Expire the readable session marker so middleware also treats us as logged out.
-        document.cookie = 'hasSession=; Max-Age=0; path=/';
         const loginPath = portal === 'platform' ? '/admin/login' : '/login';
         if (!window.location.pathname.startsWith(loginPath)) {
           window.location.assign(loginPath);
