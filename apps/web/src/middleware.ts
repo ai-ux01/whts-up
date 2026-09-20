@@ -2,7 +2,16 @@ import { NextResponse } from 'next/server';
 import type { NextRequest } from 'next/server';
 
 // Public routes that never require a session.
-const publicPaths = ['/login', '/signup', '/admin/login', '/feedback', '/mock'];
+const publicPaths = [
+  '/login',
+  '/signup',
+  '/admin/login',
+  '/feedback',
+  '/mock',
+  '/privacy',
+  '/terms',
+  '/data-deletion',
+];
 
 export function middleware(request: NextRequest) {
   const { pathname } = request.nextUrl;
