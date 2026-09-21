@@ -1,6 +1,7 @@
 'use client';
 
 import { useState, useEffect } from 'react';
+import { useSearchParams } from 'next/navigation';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { toast } from 'sonner';
 import { api } from '@/lib/api-client';
@@ -125,6 +126,19 @@ export default function ReelCreatorPage() {
     setCurrentSceneIdx(0);
     setIsPlaying(false);
   };
+
+  // Auto-open a project when arriving via ?id=… (e.g. "Create Reel" from Content Studio).
+  const searchParams = useSearchParams();
+  const requestedId = searchParams.get('id');
+  useEffect(() => {
+    if (!requestedId || activeProject?.id === requestedId) return;
+    const match = projects.find((p) => p.id === requestedId);
+    if (match) {
+      setActiveProject(match);
+      setCurrentSceneIdx(0);
+      setIsPlaying(false);
+    }
+  }, [requestedId, projects, activeProject?.id]);
 
   const getTransitionStyle = (transition: string | null) => {
     switch (transition) {

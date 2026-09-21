@@ -54,6 +54,23 @@ export class CompetitorController {
     );
   }
 
+  /**
+   * Auto-discover competitors from the business's own industry + location
+   * (Marketing Brain). Pass ?autoTrack=true to also start tracking the top few.
+   */
+  @Post('auto-discover')
+  autoDiscover(
+    @CurrentUser() user: AuthUser,
+    @Query('autoTrack') autoTrack?: string,
+    @Query('limit') limit?: string,
+  ) {
+    const workspaceId = requireWorkspaceId(user);
+    return this.competitorService.autoDiscover(workspaceId, {
+      autoTrack: autoTrack === 'true',
+      limit: limit ? parseInt(limit, 10) : undefined,
+    });
+  }
+
   @Post('track')
   track(@CurrentUser() user: AuthUser, @Body() dto: TrackCompetitorDto) {
     const workspaceId = requireWorkspaceId(user);

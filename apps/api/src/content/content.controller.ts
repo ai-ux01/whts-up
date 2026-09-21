@@ -6,14 +6,23 @@ import { CurrentUser } from '../common/decorators/current-user.decorator';
 import { AuthUser } from '../common/types';
 import { requireWorkspaceId } from '../common/utils/workspace-id';
 import { ContentService } from './content.service';
+import { BusinessProfileService } from './business-profile.service';
+import {
+  CampaignEngineService,
+  type CampaignBundle,
+} from './campaign-engine.service';
 import {
   ConnectSocialAccountDto,
   CreateReelDto,
+  GenerateCampaignDto,
+  ApplyBrandKitDto,
   GenerateContentDto,
   GenerateIdeasDto,
   GenerateResearchDto,
+  MaterializeCampaignDto,
   SchedulePostDto,
   UpdateBrandKitDto,
+  UpdateBusinessProfileDto,
   UploadMediaMetaDto,
 } from './dto/content.dto';
 
@@ -27,7 +36,67 @@ interface UploadedFileLike {
 @Controller('content')
 @UseGuards(JwtAuthGuard, ClientUserGuard)
 export class ContentController {
-  constructor(private contentService: ContentService) {}
+  constructor(
+    private contentService: ContentService,
+    private businessProfileService: BusinessProfileService,
+    private campaignEngineService: CampaignEngineService,
+  ) {}
+
+  // ==========================================
+  // CAMPAIGN ENGINE (Opportunity → full campaign)
+  // ==========================================
+
+  @Post('campaign-engine/generate')
+  generateCampaign(@CurrentUser() user: AuthUser, @Body() body: GenerateCampaignDto) {
+    return this.campaignEngineService.generate(requireWorkspaceId(user), body);
+  }
+
+  @Post('campaign-engine/materialize')
+  materializeCampaign(
+    @CurrentUser() user: AuthUser,
+    @Body() body: MaterializeCampaignDto,
+  ) {
+    return this.campaignEngineService.materialize(
+      requireWorkspaceId(user),
+      body.bundle as unknown as CampaignBundle,
+      body.parts,
+    );
+  }
+
+  /** One-click launch: schedule post + render reel + send WhatsApp to all contacts. */
+  @Post('campaign-engine/launch')
+  launchCampaign(
+    @CurrentUser() user: AuthUser,
+    @Body() body: MaterializeCampaignDto,
+  ) {
+    return this.campaignEngineService.launch(
+      requireWorkspaceId(user),
+      body.bundle as unknown as CampaignBundle,
+    );
+  }
+
+  /** Launched campaigns only — powers the Launch tab. */
+  @Get('campaign-engine/launches')
+  listLaunches(@CurrentUser() user: AuthUser) {
+    return this.campaignEngineService.listLaunches(requireWorkspaceId(user));
+  }
+
+  // ==========================================
+  // BUSINESS PROFILE (Marketing Brain)
+  // ==========================================
+
+  @Get('business-profile')
+  getBusinessProfile(@CurrentUser() user: AuthUser) {
+    return this.businessProfileService.get(requireWorkspaceId(user));
+  }
+
+  @Patch('business-profile')
+  updateBusinessProfile(
+    @CurrentUser() user: AuthUser,
+    @Body() body: UpdateBusinessProfileDto,
+  ) {
+    return this.businessProfileService.upsert(requireWorkspaceId(user), body);
+  }
 
   // ==========================================
   // BRAND KIT ENDPOINTS
@@ -50,6 +119,11 @@ export class ContentController {
   @Post('studio/generate')
   generateContent(@CurrentUser() user: AuthUser, @Body() body: GenerateContentDto) {
     return this.contentService.generateContent(requireWorkspaceId(user), body);
+  }
+
+  @Post('studio/apply-brand-kit')
+  applyBrandKit(@CurrentUser() user: AuthUser, @Body() body: ApplyBrandKitDto) {
+    return this.contentService.applyBrandKit(requireWorkspaceId(user), body);
   }
 
   @Post('ideas/generate')
@@ -155,6 +229,12 @@ export class ContentController {
   @Get('research')
   getResearchHistory(@CurrentUser() user: AuthUser) {
     return this.contentService.getResearchHistory(requireWorkspaceId(user));
+  }
+
+  /** Detailed competitor analysis that grounds the research report. */
+  @Get('research/competitor-analysis')
+  getCompetitorAnalysis(@CurrentUser() user: AuthUser) {
+    return this.contentService.getCompetitorAnalysisReport(requireWorkspaceId(user));
   }
 
   @Delete('research/:id')

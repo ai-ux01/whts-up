@@ -63,6 +63,17 @@ export class LeadsController {
     });
   }
 
+  // Declared before ':id' so these literal routes aren't captured by the param.
+  @Get('pipeline')
+  pipeline(@CurrentUser() user: AuthUser) {
+    return this.leadsService.pipeline(requireWorkspaceId(user));
+  }
+
+  @Get('follow-ups')
+  followUps(@CurrentUser() user: AuthUser) {
+    return this.leadsService.followUps(requireWorkspaceId(user));
+  }
+
   @Get(':id')
   getOne(@CurrentUser() user: AuthUser, @Param('id') id: string) {
     return this.leadsService.findOne(requireWorkspaceId(user), id);

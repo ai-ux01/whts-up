@@ -50,64 +50,23 @@ export class InsightsService {
     const client = this.aiService.getClient();
     const model = this.aiService.getChatModel();
 
-    if (!client) {
-      // Local highly realistic mock gaps if OpenAI key is not configured
-      const mockGaps = [
-        {
-          title: 'Premium Ambience Gap',
-          description: 'Top competitors like Suresh Salon have average ratings of 3.8/5, with frequent complaints (22%) regarding cramped seating and poor waiting lounges. Promoting your premium customer lounge could capture this disgruntled base.',
-          category: 'MARKET_GAP',
-        },
-        {
-          title: 'WhatsApp Booking and Fast Confirmations',
-          description: 'Customers frequently complain about 10+ minute phone delays trying to schedule bookings with competitors. Introducing instant automated WhatsApp slots will be a direct competitive advantage.',
-          category: 'MARKET_GAP',
-        },
-        {
-          title: 'Pricing Transparency Opportunity',
-          description: 'Reviews indicate customers feel competitor bills have "hidden charges" or surprise taxes. Standardizing clear upfront service pricing on WhatsApp will drive high retention.',
-          category: 'MARKET_GAP',
-        },
-      ];
+    // Prepare competitors review dumps for OpenAI analysis
+    const reviewsDump = competitors
+      .flatMap((c) =>
+        c.reviews
+          .filter((r) => r.rating <= 3 && r.reviewText)
+          .map((r) => `[Competitor: ${c.name}, Rating: ${r.rating}, Complaint: "${r.complaintCategory || 'Unknown'}", Comment: "${r.reviewText}"]`)
+      )
+      .slice(0, 40)
+      .join('\n');
 
-      // Delete existing gaps and write new ones
-      await this.prisma.marketInsight.deleteMany({
-        where: { workspaceId, category: 'MARKET_GAP' },
-      });
-
-      const saved = [];
-      for (const gap of mockGaps) {
-        const item = await this.prisma.marketInsight.create({
-          data: {
-            workspaceId,
-            title: gap.title,
-            description: gap.description,
-            category: gap.category,
-          },
-        });
-        saved.push(item);
-      }
-      return saved;
+    // No AI, or no negative reviews to feed AI → derive gaps from the real
+    // competitor complaint data instead of fabricating or returning nothing.
+    if (!client || !reviewsDump) {
+      return this.saveDerivedMarketGaps(workspaceId, competitors);
     }
 
     try {
-      // Prepare competitors review dumps for OpenAI analysis
-      const reviewsDump = competitors
-        .flatMap((c) =>
-          c.reviews
-            .filter((r) => r.rating <= 3 && r.reviewText)
-            .map((r) => `[Competitor: ${c.name}, Rating: ${r.rating}, Complaint: "${r.complaintCategory || 'Unknown'}", Comment: "${r.reviewText}"]`)
-        )
-        .slice(0, 40)
-        .join('\n');
-
-      if (!reviewsDump) {
-        // Fallback mock if no bad reviews are found to analyze
-        return this.prisma.marketInsight.findMany({
-          where: { workspaceId, category: 'MARKET_GAP' },
-        });
-      }
-
       const prompt = `You are an elite business analyst researching local business competitors in India.
 Here is a list of negative reviews (1-3 stars) from our direct competitors:
 ${reviewsDump}
@@ -161,9 +120,61 @@ You must respond in strict, valid JSON format matching this schema:
       this.logger.error('Error generating AI Market Gaps:', err);
     }
 
-    return this.prisma.marketInsight.findMany({
+    // AI failed (e.g. quota/rate limit) — fall back to real data-derived gaps.
+    return this.saveDerivedMarketGaps(workspaceId, competitors);
+  }
+
+  /**
+   * Rule-based market gaps computed from REAL tracked-competitor reviews.
+   * Aggregates each competitor's most common complaint categories and turns the
+   * biggest ones into gap cards. Never fabricates competitor names or numbers.
+   */
+  private async saveDerivedMarketGaps(
+    workspaceId: string,
+    competitors: Array<{ name: string; averageRating: number; reviews: Array<{ rating: number; complaintCategory: string | null }> }>,
+  ) {
+    // Tally complaint categories across all competitors (from real ≤3★ reviews).
+    const tally = new Map<string, { count: number; competitors: Set<string> }>();
+    for (const c of competitors) {
+      for (const r of c.reviews) {
+        if (r.rating <= 3 && r.complaintCategory) {
+          const entry = tally.get(r.complaintCategory) || { count: 0, competitors: new Set<string>() };
+          entry.count += 1;
+          entry.competitors.add(c.name);
+          tally.set(r.complaintCategory, entry);
+        }
+      }
+    }
+
+    const ranked = [...tally.entries()].sort((a, b) => b[1].count - a[1].count).slice(0, 3);
+    if (ranked.length === 0) {
+      // No complaint data to derive from — return whatever already exists (may be empty).
+      return this.prisma.marketInsight.findMany({
+        where: { workspaceId, category: 'MARKET_GAP' },
+        orderBy: { createdAt: 'desc' },
+      });
+    }
+
+    await this.prisma.marketInsight.deleteMany({
       where: { workspaceId, category: 'MARKET_GAP' },
     });
+
+    const saved = [];
+    for (const [category, info] of ranked) {
+      const names = [...info.competitors].slice(0, 3).join(', ');
+      saved.push(
+        await this.prisma.marketInsight.create({
+          data: {
+            workspaceId,
+            title: `${category} weakness`,
+            description: `Competitors (${names}) received ${info.count} negative review(s) about "${category}". Win these customers by making "${category}" a visible strength — highlight it in your offers and WhatsApp messaging.`,
+            category: 'MARKET_GAP',
+          },
+        }),
+      );
+    }
+    this.logger.log(`Compiled ${saved.length} rule-based market gaps (AI unavailable).`);
+    return saved;
   }
 
   /**
@@ -187,30 +198,9 @@ You must respond in strict, valid JSON format matching this schema:
     const client = this.aiService.getClient();
     const model = this.aiService.getChatModel();
 
+    // No AI configured → derive a SWOT from the real own/competitor review data.
     if (!client) {
-      // Return beautiful mock SWOT categories tailored to Indian SMB
-      return {
-        strengths: [
-          'High ratings for friendly customer relationship management (CRM) via WhatsApp.',
-          'Prompt and polite response behavior compared to local competitors.',
-          'Consistent praise for pricing transparency and fair service package deals.',
-        ],
-        weaknesses: [
-          'Lower overall public rating volume than Suresh Salon & Spa.',
-          'Slower weekend response times due to manual booking processes.',
-          'Occasional delays in feedback resolution during peak wedding seasons.',
-        ],
-        opportunities: [
-          'Launch automated weekend self-booking flows on WhatsApp to absorb peak lead demand.',
-          'Deploy localized Google Business review reminders to aggressively close the rating volume gap.',
-          'Offer bundle service coupons to existing customers to build word-of-mouth advocates.',
-        ],
-        threats: [
-          'Suresh Salon aggressively running local discount campaigns targeting the same residential blocks.',
-          'Competitors upgrading their salon interiors, driving complaints about our aging premium setups.',
-          'Google Business ranking drops due to competitor-targeted review volume push.',
-        ],
-      };
+      return this.deriveSwot(ownFeedbacks, ownReviews, competitors);
     }
 
     try {
@@ -262,12 +252,69 @@ You must respond in strict, valid JSON format matching this schema:
       this.logger.error('Error compiling AI SWOT Matrix:', err);
     }
 
-    // Fallback if compilation fails
+    // AI failed — derive from real data rather than returning generic filler.
+    return this.deriveSwot(ownFeedbacks, ownReviews, competitors);
+  }
+
+  /**
+   * Rule-based SWOT computed from REAL own reviews/feedback vs competitor reviews.
+   * Honest empty-ish output when there is no data, never fabricated competitor names.
+   */
+  private deriveSwot(
+    ownFeedbacks: Array<{ rating: number }>,
+    ownReviews: Array<{ rating: number }>,
+    competitors: Array<{ name: string; averageRating: number; reviews: Array<{ rating: number; complaintCategory: string | null; praiseCategory: string | null }> }>,
+  ) {
+    const ownRatings = [...ownFeedbacks.map((f) => f.rating), ...ownReviews.map((r) => r.rating)];
+    const ownTotal = ownRatings.length;
+    const ownAvg = ownTotal ? ownRatings.reduce((s, r) => s + r, 0) / ownTotal : 0;
+
+    const compReviews = competitors.flatMap((c) => c.reviews);
+    const compAvg = compReviews.length
+      ? compReviews.reduce((s, r) => s + r.rating, 0) / compReviews.length
+      : competitors.length
+        ? competitors.reduce((s, c) => s + c.averageRating, 0) / competitors.length
+        : 0;
+
+    // Competitor complaint themes = our opportunities; their praise themes = threats.
+    const complaintTally = new Map<string, number>();
+    const praiseTally = new Map<string, number>();
+    for (const r of compReviews) {
+      if (r.rating <= 3 && r.complaintCategory) complaintTally.set(r.complaintCategory, (complaintTally.get(r.complaintCategory) || 0) + 1);
+      if (r.rating >= 4 && r.praiseCategory) praiseTally.set(r.praiseCategory, (praiseTally.get(r.praiseCategory) || 0) + 1);
+    }
+    const topComplaints = [...complaintTally.entries()].sort((a, b) => b[1] - a[1]).slice(0, 3);
+    const topPraise = [...praiseTally.entries()].sort((a, b) => b[1] - a[1]).slice(0, 3);
+
+    const strengths: string[] = [];
+    const weaknesses: string[] = [];
+    const opportunities: string[] = [];
+    const threats: string[] = [];
+
+    if (ownTotal > 0) {
+      strengths.push(`Your average rating is ${ownAvg.toFixed(1)}★ across ${ownTotal} review(s)/feedback.`);
+      if (compAvg && ownAvg >= compAvg) strengths.push(`You rate at or above the tracked-competitor average (${compAvg.toFixed(1)}★).`);
+      if (compAvg && ownAvg < compAvg) weaknesses.push(`Your rating (${ownAvg.toFixed(1)}★) trails the competitor average (${compAvg.toFixed(1)}★).`);
+    } else {
+      weaknesses.push('No own reviews/feedback collected yet — start collecting via the Reputation tab.');
+      opportunities.push('Send WhatsApp feedback requests to build a public rating base.');
+    }
+
+    for (const [cat, n] of topComplaints) {
+      opportunities.push(`Competitors get ${n} complaint(s) about "${cat}" — make it your visible strength.`);
+    }
+    for (const [cat, n] of topPraise) {
+      threats.push(`Competitors are praised for "${cat}" (${n} mention(s)) — match or exceed it.`);
+    }
+    if (competitors.length === 0) {
+      threats.push('No competitors tracked yet — track some to surface real competitive threats.');
+    }
+
     return {
-      strengths: ['Highly rated customer services.', 'Fast booking replies.'],
-      weaknesses: ['Low public Google rating volume.'],
-      opportunities: ['Launch WhatsApp automatic booking rules.'],
-      threats: ['Local competitor discounting programs.'],
+      strengths: strengths.length ? strengths : ['Not enough data yet to identify strengths.'],
+      weaknesses: weaknesses.length ? weaknesses : ['Not enough data yet to identify weaknesses.'],
+      opportunities: opportunities.length ? opportunities : ['Track competitors and collect reviews to surface opportunities.'],
+      threats: threats.length ? threats : ['Track competitors to surface competitive threats.'],
     };
   }
 }

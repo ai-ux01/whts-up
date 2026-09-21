@@ -6,6 +6,7 @@ import { useTheme } from 'next-themes';
 import { Button } from '@/components/ui/button';
 import { useAuthStore } from '@/stores/auth-store';
 import { disconnectSocket } from '@/lib/socket';
+import { WorkspaceSwitcher } from './workspace-switcher';
 
 export function AppHeader({ onMenuClick }: { onMenuClick?: () => void }) {
   const { theme, setTheme } = useTheme();
@@ -24,7 +25,8 @@ export function AppHeader({ onMenuClick }: { onMenuClick?: () => void }) {
         >
           <Menu className="h-5 w-5" />
         </Button>
-        <p className="text-sm text-muted-foreground">
+        <WorkspaceSwitcher />
+        <p className="hidden text-sm text-muted-foreground lg:block">
           Welcome, <span className="font-medium text-foreground">{user?.name}</span>
         </p>
       </div>

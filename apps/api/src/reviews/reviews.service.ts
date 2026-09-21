@@ -111,17 +111,69 @@ Reply text only.`;
       throw new NotFoundException('Google review not found');
     }
 
-    // In a live integration, this calls the Google My Business API patches endpoint.
-    // For now, we update our local database state.
+    // Attempt a real Google Business Profile reply write-back when we have the
+    // review's API resource name and a Google OAuth token. Otherwise (e.g.
+    // reviews synced via Places API, which are read-only), save locally.
+    let pushedToGoogle = false;
+    const resourceName = review.googleResourceName;
+    if (resourceName) {
+      pushedToGoogle = await this.pushReplyToGoogle(workspaceId, resourceName, replyText);
+    } else {
+      this.logger.warn(
+        `Review ${id} has no Google resource name (Places-sourced reviews are read-only) — saving reply locally only.`,
+      );
+    }
+
     const updatedReview = await this.prisma.googleReview.update({
       where: { id },
-      data: {
-        replyText,
-        repliedAt: new Date(),
-      },
+      data: { replyText, repliedAt: new Date() },
     });
 
-    this.logger.log(`Published reply to review ${id} by author ${review.author}`);
-    return updatedReview;
+    this.logger.log(
+      `Reply saved for review ${id} by ${review.author}${pushedToGoogle ? ' (published to Google)' : ' (local only)'}`,
+    );
+    return { ...updatedReview, pushedToGoogle };
+  }
+
+  /**
+   * Real Google Business Profile reply write-back via the
+   * mybusiness.googleapis.com PUT {review}/reply endpoint. Returns whether the
+   * push succeeded; never throws (falls back to local save).
+   */
+  private async pushReplyToGoogle(
+    workspaceId: string,
+    reviewResourceName: string,
+    replyText: string,
+  ): Promise<boolean> {
+    const workspace = await this.prisma.workspace.findUnique({
+      where: { id: workspaceId },
+      select: { googleOAuthAccessToken: true },
+    });
+    const token = workspace?.googleOAuthAccessToken;
+    if (!token) {
+      this.logger.warn('No Google OAuth token — cannot push review reply to Google.');
+      return false;
+    }
+    try {
+      const res = await fetch(
+        `https://mybusiness.googleapis.com/v4/${reviewResourceName}/reply`,
+        {
+          method: 'PUT',
+          headers: {
+            Authorization: `Bearer ${token}`,
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({ comment: replyText }),
+        },
+      );
+      if (!res.ok) {
+        this.logger.error(`Google review reply failed: ${await res.text()}`);
+        return false;
+      }
+      return true;
+    } catch (err) {
+      this.logger.error(`Google review reply error: ${(err as Error).message}`);
+      return false;
+    }
   }
 }

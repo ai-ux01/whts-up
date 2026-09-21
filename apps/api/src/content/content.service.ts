@@ -8,6 +8,7 @@ import { LeadStatus } from '@prisma/client';
 import { forwardRef, Inject } from '@nestjs/common';
 import { SupabaseStorageService } from './supabase-storage.service';
 import { QueueService } from '../queue/queue.service';
+import { BusinessProfileService } from './business-profile.service';
 
 @Injectable()
 export class ContentService {
@@ -22,6 +23,7 @@ export class ContentService {
     private metaOAuthService: MetaOAuthService,
     @Inject(forwardRef(() => QueueService))
     private queueService: QueueService,
+    private businessProfile: BusinessProfileService,
   ) {}
 
   // ==========================================
@@ -80,12 +82,13 @@ export class ContentService {
 
     const client = this.aiService.getClient();
     const model = this.aiService.getChatModel();
+    const businessContext = await this.businessProfile.buildContext(workspaceId);
 
     const systemPrompt = `You are an elite, highly experienced copywriter and SaaS content strategist specializing in Indian SMB marketing.
 Your goal is to write high-impact content that triggers action and generates direct sales.
 Current Brand Voice Profile: ${voice}
 Current Signature Call-to-Action (CTA): ${cta}
-Language criteria: Write entirely in ${lang}. If Hinglish, write casual conversational Hindi in Roman script (e.g. "Kya aap ready hain?").`;
+Language criteria: Write entirely in ${lang}. If Hinglish, write casual conversational Hindi in Roman script (e.g. "Kya aap ready hain?").${businessContext}`;
 
     let userPrompt = '';
     if (params.type === 'caption') {
@@ -189,18 +192,81 @@ Introducing the ultimate solution for **${topic}**!
   }
 
   // ==========================================
+  // APPLY BRAND KIT (final polish step)
+  // ==========================================
+
+  /**
+   * Takes already-generated copy and re-shapes it through the workspace Brand Kit:
+   * enforces the brand voice, guarantees the signature CTA is present, and returns
+   * the brand's visual attributes (colors, logo) so the UI can frame the result.
+   */
+  async applyBrandKit(workspaceId: string, params: { content: string }) {
+    const brandKit = await this.getBrandKit(workspaceId);
+    const voice = brandKit.brandVoice || 'Professional';
+    const cta = brandKit.ctaTemplate || '';
+    const client = this.aiService.getClient();
+    const model = this.aiService.getChatModel();
+    const businessContext = await this.businessProfile.buildContext(workspaceId);
+
+    const brand = {
+      brandVoice: voice,
+      ctaTemplate: cta,
+      primaryColor: brandKit.primaryColor,
+      secondaryColor: brandKit.secondaryColor,
+      logoUrl: brandKit.logoUrl,
+    };
+
+    const systemPrompt = `You are a brand editor. Rewrite the user's marketing copy so it fully matches this brand.
+Brand voice/tone: ${voice}.
+Signature call-to-action that MUST appear (verbatim or naturally woven in near the end): "${cta}".
+Keep the same core message, offer, and length. Do not invent new facts. Only adjust tone, phrasing, and the CTA.${businessContext}`;
+
+    if (client && params.content.trim()) {
+      try {
+        const completion = await client.chat.completions.create({
+          model,
+          messages: [
+            { role: 'system', content: systemPrompt },
+            { role: 'user', content: params.content },
+          ],
+          temperature: 0.6,
+        });
+        const branded = completion.choices[0]?.message?.content?.trim();
+        if (branded) {
+          return { content: branded, brand };
+        }
+      } catch (err) {
+        this.logger.error('Apply Brand Kit error', err);
+      }
+    }
+
+    // Fail-honest fallback: no AI configured (or empty content) — apply the CTA
+    // deterministically so the step still does something real, never faking an AI rewrite.
+    const trimmed = params.content.trim();
+    const alreadyHasCta = cta && trimmed.toLowerCase().includes(cta.toLowerCase());
+    const content = cta && !alreadyHasCta ? `${trimmed}\n\n👉 ${cta}` : trimmed;
+    return { content, brand, aiApplied: !!client };
+  }
+
+  // ==========================================
   // AI CONTENT IDEAS METHODS
   // ==========================================
 
-  async generateIdeas(workspaceId: string, params: { niche: string }) {
+  async generateIdeas(workspaceId: string, params: { niche: string; seed?: string }) {
     const client = this.aiService.getClient();
     const model = this.aiService.getChatModel();
+    const businessContext = await this.businessProfile.buildContext(workspaceId);
 
     const systemPrompt = `You are a viral growth hacker and SaaS marketing advisor. 
 Provide 3 viral reel content ideas matching the user's business niche. 
-For each idea, provide a Catchy Title, Hook line, description, and Call to Action. Return it as a JSON array.`;
+For each idea, provide a Catchy Title, Hook line, description, and Call to Action. Return it as a JSON array.${businessContext}`;
 
-    const userPrompt = `Generate 3 viral content ideas for niche: "${params.niche}"`;
+    // If a research seed (competitor gap / trending query / viral hook) was passed,
+    // anchor the ideas to that specific angle so the pipeline stays connected.
+    const seedLine = params.seed
+      ? `\nBuild all 3 ideas directly around this specific research insight: "${params.seed}". Every idea must clearly develop that angle.`
+      : '';
+    const userPrompt = `Generate 3 viral content ideas for niche: "${params.niche}"${seedLine}`;
 
     if (client) {
       try {
@@ -738,15 +804,22 @@ For each scene, return a scene text narration (Hinglish/English), duration (4-6s
     const client = this.aiService.getClient();
     const model = this.aiService.getChatModel();
 
+    // STEP 1 — Competitor analysis first: pull the workspace's REAL tracked
+    // competitors, their reviews, and any compiled market gaps. The research
+    // report's competitor gaps / trends / viral hooks are then grounded in this
+    // analysis instead of being invented from the topic alone.
+    const analysis = await this.buildCompetitorAnalysis(workspaceId);
+
     const systemPrompt = `You are an elite short-form growth hacker, SaaS marketing consultant, and viral hook copywriter specializing in Indian SMB competitive intelligence.
-Generate a comprehensive, highly actionable growth research report based on the user's business niche and targeted topic.
+Generate a comprehensive, highly actionable growth research report based on the user's business niche, targeted topic, AND the real competitor analysis provided.
+Base the "competitors" (gaps) directly on the competitor weaknesses/complaints in the analysis when present. Then derive "trends" and "viralHooks" that exploit those gaps.
 You MUST return a JSON object with this exact schema:
 {
   "viralHooks": [
     { "hook": "The specific video hook text copy in Hinglish or conversational Hindi/English", "type": "Curiosity / Contrarian / Pain-Point / Direct-Value", "ctrPower": 95, "executionTips": "Tips on how to film/present this hook visually" }
   ],
   "competitors": [
-    { "weakness": "Detail common weaknesses or generic strategies of competitors in this space", "opportunity": "Detail our specific growth advantage or angle of attack", "scriptAngle": "Recommended video angle or subtitle counter-strategy" }
+    { "weakness": "Detail common weaknesses or generic strategies of competitors in this space", "opportunity": "Detail our specific growth advantage or angle of attack", "scriptAngle": "Recommended video angle or subtitle counter-strategy", "theirStrength": "What competitors are genuinely good at (their strength)", "counterStrategy": "How to match/neutralise that strength so we don't lose on it" }
   ],
   "trends": [
     { "query": "High-volume search query in India", "angle": "Trending visual angle or storyline suggestion", "keywords": ["kw1", "kw2"] }
@@ -754,7 +827,10 @@ You MUST return a JSON object with this exact schema:
 }
 Ensure the content is detailed, creative, and highly specific to the targeted niche. Limit hooks to exactly 3 high-impact entries, competitors to exactly 2 entries, and trends to exactly 2 entries.`;
 
-    const userPrompt = `Generate a detailed growth research report for niche: "${params.niche}" and topic: "${params.topic}"`;
+    const userPrompt = `Generate a detailed growth research report for niche: "${params.niche}" and topic: "${params.topic}".
+
+REAL COMPETITOR ANALYSIS FOR THIS BUSINESS:
+${analysis.promptBlock}`;
 
     let reportData: any = null;
 
@@ -779,6 +855,12 @@ Ensure the content is detailed, creative, and highly specific to the targeted ni
       reportData = this.getMockResearchData(params.niche, params.topic);
     }
 
+    // If we have real competitor gaps, prefer them for the "competitors" section
+    // so the report reflects the actual analysis rather than invented weaknesses.
+    if (analysis.competitorGaps.length > 0) {
+      reportData.competitors = analysis.competitorGaps;
+    }
+
     // Save report to database
     return this.prisma.researchReport.create({
       data: {
@@ -790,6 +872,197 @@ Ensure the content is detailed, creative, and highly specific to the targeted ni
         trends: reportData.trends || [],
       }
     });
+  }
+
+  /**
+   * Real competitor analysis for the research step. Reads tracked competitors,
+   * their reviews (complaint themes + ratings) and any compiled market gaps for
+   * the workspace, then builds:
+   *  - a prompt block the AI grounds the report in, and
+   *  - `competitorGaps` in the ResearchReport shape (weakness/opportunity/scriptAngle),
+   *    derived from real competitor weaknesses and market-gap insights.
+   * When nothing is tracked yet, returns an honest note (no fabricated competitors).
+   */
+  private async buildCompetitorAnalysis(workspaceId: string): Promise<{
+    promptBlock: string;
+    competitorGaps: Array<{ weakness: string; opportunity: string; scriptAngle: string; theirStrength?: string; counterStrategy?: string }>;
+    hasData: boolean;
+  }> {
+    const [competitors, marketGaps] = await Promise.all([
+      this.prisma.competitor.findMany({
+        where: { workspaceId },
+        include: { reviews: true },
+      }),
+      this.prisma.marketInsight.findMany({
+        where: { workspaceId, category: 'MARKET_GAP' },
+        orderBy: { createdAt: 'desc' },
+        take: 5,
+      }),
+    ]);
+
+    if (competitors.length === 0 && marketGaps.length === 0) {
+      return {
+        promptBlock:
+          'No competitors are tracked yet for this business. Track competitors in the Competitors tab to ground this report in real competitor weaknesses.',
+        competitorGaps: [],
+        hasData: false,
+      };
+    }
+
+    // Aggregate each competitor's rating + top complaint AND praise themes from real reviews.
+    const lines: string[] = [];
+    const derivedGaps: Array<{ weakness: string; opportunity: string; scriptAngle: string; theirStrength?: string; counterStrategy?: string }> = [];
+
+    for (const c of competitors) {
+      const total = c.reviews.length;
+      const avg =
+        total > 0
+          ? (c.reviews.reduce((s, r) => s + r.rating, 0) / total).toFixed(1)
+          : c.averageRating.toFixed(1);
+      const complaints = new Map<string, number>();
+      const praise = new Map<string, number>();
+      for (const r of c.reviews) {
+        if (r.complaintCategory && r.rating <= 3) {
+          complaints.set(r.complaintCategory, (complaints.get(r.complaintCategory) || 0) + 1);
+        }
+        if (r.praiseCategory && r.rating >= 4) {
+          praise.set(r.praiseCategory, (praise.get(r.praiseCategory) || 0) + 1);
+        }
+      }
+      const topComplaints = [...complaints.entries()]
+        .sort((a, b) => b[1] - a[1])
+        .slice(0, 3)
+        .map(([cat, n]) => `${cat} (${n})`);
+      const topPraise = [...praise.entries()]
+        .sort((a, b) => b[1] - a[1])
+        .slice(0, 3)
+        .map(([cat, n]) => `${cat} (${n})`);
+      lines.push(
+        `- ${c.name} [${c.category || 'business'}, ${c.location || 'local'}] — avg ${avg}★ over ${total || c.totalReviews} reviews. Top complaints: ${topComplaints.join(', ') || 'none recorded'}. Top praise (their strengths): ${topPraise.join(', ') || 'none recorded'}.`,
+      );
+
+      // Turn the single biggest complaint into a real competitor gap, and the
+      // single biggest praise into a "tackle their strength" counter-strategy.
+      if (topComplaints.length > 0 || topPraise.length > 0) {
+        const weakestArea = complaints.size ? [...complaints.entries()].sort((a, b) => b[1] - a[1])[0][0] : null;
+        const strongestArea = praise.size ? [...praise.entries()].sort((a, b) => b[1] - a[1])[0][0] : null;
+        derivedGaps.push({
+          weakness: weakestArea
+            ? `${c.name} is repeatedly criticised for "${weakestArea}" (${complaints.get(weakestArea)} negative review(s), avg ${avg}★).`
+            : `${c.name} averages ${avg}★ — look for angles their reviews don't cover.`,
+          opportunity: weakestArea
+            ? `Position your business as the fix for "${weakestArea}" that ${c.name}'s customers complain about — lead with it in your messaging and offers.`
+            : `Differentiate on service quality and speed where ${c.name} is only average.`,
+          scriptAngle: weakestArea
+            ? `Open with the pain of "${weakestArea}", then show your business solving it faster/better than ${c.name}.`
+            : `Show a side-by-side of the customer experience vs ${c.name}.`,
+          theirStrength: strongestArea
+            ? `${c.name} is consistently praised for "${strongestArea}" (${praise.get(strongestArea)} positive review(s)).`
+            : undefined,
+          counterStrategy: strongestArea
+            ? `Match "${strongestArea}" as table-stakes, then out-do them on "${weakestArea || 'value & responsiveness'}" — don't compete only where they're already strong.`
+            : undefined,
+        });
+      }
+    }
+
+    for (const g of marketGaps) {
+      lines.push(`- Market gap: ${g.title} — ${g.description}`);
+      derivedGaps.push({
+        weakness: `Market gap identified: ${g.title}.`,
+        opportunity: g.description,
+        scriptAngle: `Build a short video that dramatises "${g.title}" and how your business closes that gap.`,
+      });
+    }
+
+    return {
+      promptBlock: lines.join('\n'),
+      // Cap to the 2 strongest gaps to match the report's expected shape.
+      competitorGaps: derivedGaps.slice(0, 2),
+      hasData: true,
+    };
+  }
+
+  /**
+   * Detailed competitor analysis report for the Research stage UI. Returns, per
+   * tracked competitor, real rating/review counts + sentiment split + top
+   * complaint/praise themes, plus the business's own numbers for comparison and
+   * the derived competitor gaps. All numbers come from real DB rows — no mocks.
+   */
+  async getCompetitorAnalysisReport(workspaceId: string) {
+    const [competitors, ownFeedbacks, ownReviews, marketGaps] = await Promise.all([
+      this.prisma.competitor.findMany({
+        where: { workspaceId },
+        include: { reviews: true },
+      }),
+      this.prisma.feedback.findMany({ where: { workspaceId } }),
+      this.prisma.googleReview.findMany({ where: { workspaceId } }),
+      this.prisma.marketInsight.findMany({
+        where: { workspaceId, category: 'MARKET_GAP' },
+        orderBy: { createdAt: 'desc' },
+        take: 5,
+      }),
+    ]);
+
+    const ownRatings = [...ownFeedbacks.map((f) => f.rating), ...ownReviews.map((r) => r.rating)];
+    const ownTotal = ownRatings.length;
+    const ownAvg = ownTotal ? parseFloat((ownRatings.reduce((s, r) => s + r, 0) / ownTotal).toFixed(2)) : 0;
+
+    const competitorReports = competitors.map((c) => {
+      const total = c.reviews.length;
+      const avg = total
+        ? parseFloat((c.reviews.reduce((s, r) => s + r.rating, 0) / total).toFixed(2))
+        : c.averageRating;
+
+      const sentiment = { POSITIVE: 0, NEUTRAL: 0, NEGATIVE: 0 };
+      const complaints = new Map<string, number>();
+      const praise = new Map<string, number>();
+      for (const r of c.reviews) {
+        const s = (r.sentiment || 'NEUTRAL').toUpperCase();
+        if (s === 'POSITIVE') sentiment.POSITIVE++;
+        else if (s === 'NEGATIVE') sentiment.NEGATIVE++;
+        else sentiment.NEUTRAL++;
+        if (r.rating <= 3 && r.complaintCategory) complaints.set(r.complaintCategory, (complaints.get(r.complaintCategory) || 0) + 1);
+        if (r.rating >= 4 && r.praiseCategory) praise.set(r.praiseCategory, (praise.get(r.praiseCategory) || 0) + 1);
+      }
+      const sortEntries = (m: Map<string, number>) =>
+        [...m.entries()].sort((a, b) => b[1] - a[1]).map(([category, count]) => ({ category, count }));
+
+      return {
+        id: c.id,
+        name: c.name,
+        category: c.category,
+        location: c.location,
+        averageRating: avg,
+        totalReviews: total || c.totalReviews,
+        reviewsAnalyzed: total,
+        positiveRate: total ? Math.round((sentiment.POSITIVE / total) * 100) : 0,
+        sentiment,
+        topComplaints: sortEntries(complaints).slice(0, 3),
+        topPraise: sortEntries(praise).slice(0, 3),
+        // A couple of the competitor's actual review snippets for evidence.
+        sampleReviews: c.reviews.slice(0, 3).map((r) => ({
+          rating: r.rating,
+          text: r.reviewText,
+          sentiment: r.sentiment,
+        })),
+        // vs. own business
+        ratingVsOurs: ownAvg ? parseFloat((avg - ownAvg).toFixed(2)) : null,
+      };
+    });
+
+    const analysis = await this.buildCompetitorAnalysis(workspaceId);
+
+    return {
+      hasData: competitors.length > 0,
+      ownBusiness: {
+        averageRating: ownAvg,
+        totalReviews: ownTotal,
+      },
+      competitors: competitorReports,
+      competitorGaps: analysis.competitorGaps,
+      marketGaps: marketGaps.map((g) => ({ title: g.title, description: g.description })),
+    };
   }
 
   private getMockResearchData(niche: string, topic: string) {
@@ -818,12 +1091,16 @@ Ensure the content is detailed, creative, and highly specific to the targeted ni
         {
           weakness: `Most competitors in ${niche} are still running standard, slow newspaper flyers and manual calls which take 24 hours to respond.`,
           opportunity: `Deploy dynamic speed-to-lead automation that instantly text back incoming queries on WhatsApp within 30 seconds!`,
-          scriptAngle: 'Highlight speed-to-lead contrasting a slow competitor office vs your live instantly converting dashboards.'
+          scriptAngle: 'Highlight speed-to-lead contrasting a slow competitor office vs your live instantly converting dashboards.',
+          theirStrength: `Established competitors have strong brand recognition and years of local word-of-mouth trust.`,
+          counterStrategy: `Match their trust signals with visible reviews/testimonials, then beat them on instant WhatsApp responsiveness they can't match.`
         },
         {
           weakness: `Generic brand captions and boring stock images that look identical to every local business in India.`,
           opportunity: `Use conversational Romanized Hinglish hooks pitching immediate value combined with curated vertical custom timelines.`,
-          scriptAngle: 'Speak casually in Roman script, showing dynamic real-world screenshots of client metrics.'
+          scriptAngle: 'Speak casually in Roman script, showing dynamic real-world screenshots of client metrics.',
+          theirStrength: `They often have larger ad budgets and higher posting frequency.`,
+          counterStrategy: `Don't out-spend — out-relate. Win with authentic Hinglish storytelling and faster DMs where big-budget players feel impersonal.`
         }
       ],
       trends: [

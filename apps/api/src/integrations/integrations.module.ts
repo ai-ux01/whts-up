@@ -6,6 +6,8 @@ import { OAuthStateService } from './oauth-state.service';
 import { InstagramService } from './instagram.service';
 import { SmsService } from './sms.service';
 import { EmailService } from './email.service';
+import { AdsInsightsService } from './ads-insights.service';
+import { AdsCampaignService } from './ads-campaign.service';
 
 @Module({
   controllers: [IntegrationsController],
@@ -16,6 +18,8 @@ import { EmailService } from './email.service';
     InstagramService,
     SmsService,
     EmailService,
+    AdsInsightsService,
+    AdsCampaignService,
   ],
   exports: [
     MetaOAuthService,
@@ -23,6 +27,8 @@ import { EmailService } from './email.service';
     InstagramService,
     SmsService,
     EmailService,
+    AdsInsightsService,
+    AdsCampaignService,
   ],
 })
 export class IntegrationsModule {}

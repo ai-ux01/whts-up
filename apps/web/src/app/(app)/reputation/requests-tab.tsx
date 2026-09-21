@@ -3,7 +3,7 @@
 import { useState } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { api } from '@/lib/api-client';
-import { Send, CheckCircle2, AlertCircle, RefreshCw, Smartphone } from 'lucide-react';
+import { Send, CheckCircle2, RefreshCw, Smartphone } from 'lucide-react';
 import { toast } from 'sonner';
 
 interface FeedbackSummary {
@@ -34,23 +34,39 @@ export default function RequestsTab() {
     queryFn: () => api<FeedbacksListData>('/feedback'),
   });
 
+  // Real count of review requests actually sent (from the reputation dashboard summary).
+  const { data: dashboard } = useQuery<{ summary?: { reviewRequestsSent?: number } }>({
+    queryKey: ['reputationDashboard'],
+    queryFn: () => api('/reputation/dashboard'),
+  });
+  const reviewRequestsSent = dashboard?.summary?.reviewRequestsSent ?? 0;
+
   const triggerMutation = useMutation({
     mutationFn: (payload: { contactId: string; customerPhone: string; customerName: string }) =>
-      api('/automations/trigger-service-completed', {
-        method: 'POST',
-        body: JSON.stringify(payload),
-      }),
+      api<{ sent: boolean; simulated: boolean; messageId?: string }>(
+        '/automations/trigger-service-completed',
+        {
+          method: 'POST',
+          body: JSON.stringify(payload),
+        },
+      ),
     onMutate: () => {
       setLoading(true);
     },
-    onSuccess: () => {
-      toast.success(`Feedback WhatsApp request sent to ${customerPhone}!`);
+    onSuccess: (res) => {
+      // Honest feedback: distinguish a real send from a sandbox simulation.
+      if (res.simulated) {
+        toast.success(`Simulated feedback request to ${customerPhone} (WhatsApp not fully configured — sandbox mode).`);
+      } else {
+        toast.success(`Feedback WhatsApp request sent to ${customerPhone}!`);
+      }
       setCustomerName('');
       setCustomerPhone('');
+      queryClient.invalidateQueries({ queryKey: ['feedbacksListSummary'] });
       queryClient.invalidateQueries({ queryKey: ['reputationDashboard'] });
     },
     onError: (err: Error) => {
-      toast.error(err.message || 'Failed to trigger simulated WhatsApp request.');
+      toast.error(err.message || 'Failed to send WhatsApp feedback request.');
     },
     onSettled: () => {
       setLoading(false);
@@ -72,8 +88,10 @@ export default function RequestsTab() {
   };
 
   const feedbacks = feedbacksData?.data || [];
-  const totalSent = feedbacks.length + 4; // Mock conversion offset
   const responsesCount = feedbacks.length;
+  // "Requests sent" = review requests actually logged (from the dashboard summary),
+  // never a fabricated offset. Falls back to responses when the count is unavailable.
+  const totalSent = Math.max(reviewRequestsSent, responsesCount);
   const conversionRate = totalSent > 0 ? Math.round((responsesCount / totalSent) * 100) : 0;
 
   return (
@@ -193,19 +211,6 @@ export default function RequestsTab() {
                       </td>
                     </tr>
                   ))}
-                  {/* Seeded Pending entries */}
-                  <tr className="hover:bg-white/2.5">
-                    <td className="py-3 pr-4 font-semibold text-white">Rahul Verma</td>
-                    <td className="py-3 pr-4 text-slate-400">+918888888888</td>
-                    <td className="py-3 pr-4 text-slate-400">Just now</td>
-                    <td className="py-3 pr-4 text-slate-400">WHATSAPP</td>
-                    <td className="py-3 text-right">
-                      <span className="inline-flex items-center gap-1 rounded-full bg-slate-500/10 px-2 py-0.5 text-xs font-semibold text-slate-400">
-                        <AlertCircle className="h-3 w-3" />
-                        Pending Reply
-                      </span>
-                    </td>
-                  </tr>
                 </tbody>
               </table>
             </div>

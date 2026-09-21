@@ -132,6 +132,23 @@ export default function InboxPage() {
     onError: (e) => toast.error(e.message),
   });
 
+  const suggestReplyMutation = useMutation({
+    mutationFn: () =>
+      api<{ suggestion: string | null; reason?: string }>(
+        `/conversations/${selectedConversationId}/messages/suggest-reply`,
+        { method: 'POST' },
+      ),
+    onSuccess: (data) => {
+      if (data.suggestion) {
+        setMessageText(data.suggestion);
+        toast.success('AI drafted a reply — review and send');
+      } else {
+        toast.info(data.reason || 'No suggestion available');
+      }
+    },
+    onError: (e) => toast.error(e instanceof Error ? e.message : 'AI suggest failed'),
+  });
+
   const newChatMutation = useMutation({
     mutationFn: (vars: { phone: string; channel: string }) =>
       api<Conversation>('/conversations', {
@@ -491,6 +508,16 @@ export default function InboxPage() {
                 }}
               >
                 <div className="flex gap-2">
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="icon"
+                    title="AI suggest reply"
+                    onClick={() => suggestReplyMutation.mutate()}
+                    disabled={suggestReplyMutation.isPending}
+                  >
+                    <Sparkles className="h-4 w-4 text-primary" />
+                  </Button>
                   <Input
                     placeholder={
                       detail?.channel !== 'WHATSAPP' || detail?.sessionWindowOpen

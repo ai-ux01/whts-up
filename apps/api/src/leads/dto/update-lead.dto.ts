@@ -1,8 +1,10 @@
 import {
   IsArray,
   IsEnum,
+  IsNumber,
   IsOptional,
   IsString,
+  Min,
 } from 'class-validator';
 import { LeadStatus } from '@prisma/client';
 
@@ -27,4 +29,9 @@ export class UpdateLeadDto {
   @IsOptional()
   @IsString()
   name?: string;
+
+  @IsOptional()
+  @IsNumber()
+  @Min(0)
+  value?: number;
 }

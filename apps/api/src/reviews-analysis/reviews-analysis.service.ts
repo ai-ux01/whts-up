@@ -132,14 +132,15 @@ export class ReviewsAnalysisService {
         ...ownReviews.filter((r) => new Date(r.reviewDate) <= dateCutoff),
       ];
       const ownSum = accumulatedOwn.reduce((acc, val) => acc + val.rating, 0);
-      const ownAvg = accumulatedOwn.length > 0 ? parseFloat((ownSum / accumulatedOwn.length).toFixed(2)) : 4.2;
+      // Zero (not a fabricated 4.2) when no data has accumulated for this week.
+      const ownAvg = accumulatedOwn.length > 0 ? parseFloat((ownSum / accumulatedOwn.length).toFixed(2)) : 0;
 
       // Filter competitor ratings
       const accumulatedComp = competitors.flatMap((c) =>
         c.reviews.filter((r: any) => new Date(r.reviewDate) <= dateCutoff),
       );
       const compSum = accumulatedComp.reduce((acc, val) => acc + val.rating, 0);
-      const compAvg = accumulatedComp.length > 0 ? parseFloat((compSum / accumulatedComp.length).toFixed(2)) : 4.4;
+      const compAvg = accumulatedComp.length > 0 ? parseFloat((compSum / accumulatedComp.length).toFixed(2)) : 0;
 
       trendData.push({
         name: weekLabel,

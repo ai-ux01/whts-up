@@ -11,9 +11,10 @@ export class ReputationService {
     this.logger.log(`Compiling reputation dashboard stats for workspace ${workspaceId}...`);
 
     // Fetch all feedbacks and google reviews for this workspace
-    const [feedbacks, googleReviews] = await Promise.all([
+    const [feedbacks, googleReviews, reviewRequestsSent] = await Promise.all([
       this.prisma.feedback.findMany({ where: { workspaceId } }),
       this.prisma.googleReview.findMany({ where: { workspaceId } }),
+      this.prisma.reviewRequest.count({ where: { workspaceId } }),
     ]);
 
     const totalFeedbacks = feedbacks.length;
@@ -25,6 +26,9 @@ export class ReputationService {
       return {
         summary: {
           totalReviews: 0,
+          totalFeedbacks: 0,
+          totalGoogleReviews: 0,
+          reviewRequestsSent,
           averageRating: 0,
           csat: 0,
           nps: 0,
@@ -98,14 +102,15 @@ export class ReputationService {
       count,
     })).sort((a, b) => b.count - a.count);
 
-    // Compile beautiful trends (past 6 months)
-    const trends = this.generateMockTrends(allItems);
+    // Compile trends from real data only (no fabricated curve).
+    const trends = this.generateTrends(allItems);
 
     return {
       summary: {
         totalReviews: totalCount,
         totalFeedbacks,
         totalGoogleReviews,
+        reviewRequestsSent,
         averageRating,
         csat,
         nps,
@@ -119,8 +124,9 @@ export class ReputationService {
     };
   }
 
-  private generateMockTrends(items: any[]) {
-    // Generate dates representing the past 5 weeks to map review growth trends
+  private generateTrends(items: any[]) {
+    // Cumulative review stats over the past 5 weeks — derived only from real
+    // items. Empty weeks show zeros rather than fabricated numbers.
     const now = new Date();
     const trendData = [];
 
@@ -128,7 +134,6 @@ export class ReputationService {
       const dateCutoff = new Date(now.getTime() - i * 7 * 24 * 3600 * 1000);
       const weekLabel = `Week ${5 - i}`;
 
-      // Filter items created up to this week's timestamp
       const accumulatedItems = items.filter((item) => {
         const itemDate = new Date(item.createdAt || item.reviewDate);
         return itemDate <= dateCutoff;
@@ -138,7 +143,6 @@ export class ReputationService {
       const sum = accumulatedItems.reduce((acc, item) => acc + item.rating, 0);
       const avg = count > 0 ? parseFloat((sum / count).toFixed(2)) : 0;
 
-      // Extract positive ratio
       const positiveCount = accumulatedItems.filter((item) => {
         const s = (item.sentiment || 'NEUTRAL').toUpperCase();
         return s === 'POSITIVE';
@@ -147,9 +151,9 @@ export class ReputationService {
 
       trendData.push({
         name: weekLabel,
-        reviewsCount: count || (12 + (4 - i) * 6), // seed realistic curve if empty
-        averageRating: avg || parseFloat((4.1 + (4 - i) * 0.1).toFixed(2)),
-        positiveRate: posRate || (72 + (4 - i) * 3),
+        reviewsCount: count,
+        averageRating: avg,
+        positiveRate: posRate,
       });
     }
 

@@ -1,4 +1,6 @@
 import {
+  Allow,
+  IsArray,
   IsHexColor,
   IsIn,
   IsInt,
@@ -7,6 +9,7 @@ import {
   IsUrl,
   MaxLength,
   Min,
+  ValidateNested,
 } from 'class-validator';
 import { Type } from 'class-transformer';
 
@@ -59,10 +62,23 @@ export class GenerateContentDto {
   language?: string;
 }
 
+export class ApplyBrandKitDto {
+  @IsString()
+  @MaxLength(8000)
+  content!: string;
+}
+
 export class GenerateIdeasDto {
   @IsString()
   @MaxLength(120)
   niche!: string;
+
+  // Optional seed carried from Research (a competitor gap / trending query / viral hook)
+  // so generated ideas build directly on that specific angle.
+  @IsOptional()
+  @IsString()
+  @MaxLength(400)
+  seed?: string;
 }
 
 export class CreateReelDto {
@@ -130,6 +146,118 @@ export class GenerateResearchDto {
   @IsString()
   @MaxLength(120)
   niche!: string;
+}
+
+export class ProductDto {
+  @IsString()
+  @MaxLength(120)
+  name!: string;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(400)
+  description?: string;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(60)
+  price?: string;
+}
+
+export class UpdateBusinessProfileDto {
+  @IsOptional()
+  @IsString()
+  @MaxLength(80)
+  industry?: string;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(120)
+  location?: string;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(1000)
+  description?: string;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(500)
+  targetCustomer?: string;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(500)
+  usp?: string;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(80)
+  priceRange?: string;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(200)
+  website?: string;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(30)
+  whatsappNumber?: string;
+
+  @IsOptional()
+  @IsArray()
+  @IsString({ each: true })
+  offers?: string[];
+
+  @IsOptional()
+  @IsArray()
+  @ValidateNested({ each: true })
+  @Type(() => ProductDto)
+  products?: ProductDto[];
+
+  @IsOptional()
+  @IsArray()
+  @IsString({ each: true })
+  competitors?: string[];
+
+  @IsOptional()
+  @IsArray()
+  @IsString({ each: true })
+  keywords?: string[];
+}
+
+export class GenerateCampaignDto {
+  @IsString()
+  @MaxLength(300)
+  topic!: string;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(80)
+  objective?: string;
+}
+
+export class MaterializePartsDto {
+  @IsOptional()
+  reel?: boolean;
+
+  @IsOptional()
+  post?: boolean;
+
+  @IsOptional()
+  whatsappCampaign?: boolean;
+}
+
+export class MaterializeCampaignDto {
+  // The reviewed bundle (AI-generated, re-submitted by the client for storage).
+  // @Allow keeps the whitelist pipe from stripping this free-form object.
+  @Allow()
+  bundle!: Record<string, unknown>;
+
+  @ValidateNested()
+  @Type(() => MaterializePartsDto)
+  parts!: MaterializePartsDto;
 }
 
 export class UploadMediaMetaDto {

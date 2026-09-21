@@ -108,6 +108,7 @@ model Workspace {
   updatedAt             DateTime @updatedAt
 
   users           User[]
+  memberships     WorkspaceMembership[]
   contacts        Contact[]
   conversations   Conversation[]
   leads           Lead[]
@@ -119,6 +120,7 @@ model Workspace {
   reelProjects    ReelProject[]
   mediaAssets     MediaAsset[]
   brandKit        BrandKit?
+  businessProfile BusinessProfile?
   contentIdeas    ContentIdea[]
   scheduledPosts  ScheduledPost[]
   researchReports ResearchReport[]
@@ -129,6 +131,7 @@ model Workspace {
   competitors           Competitor[]
   improvementSuggestions ImprovementSuggestion[]
   marketInsights        MarketInsight[]
+  launchedCampaigns     LaunchedCampaign[]
 }
 
 model User {
@@ -137,14 +140,31 @@ model User {
   passwordHash String
   name         String
   role         UserRole @default(AGENT)
-  workspaceId  String?
+  workspaceId  String?  // default / last-active workspace
   createdAt    DateTime @default(now())
   updatedAt    DateTime @updatedAt
 
   workspace     Workspace? @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
   assignedLeads Lead[]    @relation("AssignedLeads")
   messages      Message[] @relation("AgentMessages")
+  memberships   WorkspaceMembership[]
 
+  @@index([workspaceId])
+}
+
+// Many-to-many: a user can belong to (run) multiple workspaces/businesses.
+model WorkspaceMembership {
+  id          String   @id @default(cuid())
+  userId      String
+  workspaceId String
+  role        UserRole @default(ADMIN)
+  createdAt   DateTime @default(now())
+
+  user      User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  workspace Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, workspaceId])
+  @@index([userId])
   @@index([workspaceId])
 }
 
@@ -222,6 +242,8 @@ model Lead {
   notes             String?
   assignedUserId    String?
   tags              String[]   @default([])
+  value             Float?     // deal value once won (for revenue attribution)
+  wonAt             DateTime?  // set when the lead is marked CLOSED/won
   lastInteractionAt DateTime   @default(now())
   createdAt         DateTime   @default(now())
   updatedAt         DateTime   @updatedAt
@@ -276,6 +298,25 @@ model CampaignRecipient {
 
   @@index([campaignId, status])
   @@index([externalMessageId])
+}
+
+// A one-click "Launch" from the Campaign Engine, recorded as a single unit so the
+// Launch tab can show only launched-campaign data (what was launched + per-step result).
+model LaunchedCampaign {
+  id          String   @id @default(cuid())
+  workspaceId String
+  topic       String
+  objective   String?
+  launched    Int      @default(0) // number of steps that completed
+  steps       Json // { post|reel|whatsapp: { status, detail, id } }
+  postId      String?
+  reelId      String?
+  campaignId  String?
+  createdAt   DateTime @default(now())
+
+  workspace Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+
+  @@index([workspaceId, createdAt])
 }
 
 model AutomationRule {
@@ -404,6 +445,29 @@ model BrandKit {
   workspace Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
 }
 
+// Phase 2 — Marketing Brain. Central source of truth about the business that
+// the AI uses across content, reels, ideas, and (later) campaigns.
+model BusinessProfile {
+  id             String   @id @default(cuid())
+  workspaceId    String   @unique
+  industry       String?  // e.g. Real Estate, Coaching, Salon
+  location       String?  // primary city / service area
+  description    String?  // short "about the business"
+  targetCustomer String?  // ideal customer / audience description
+  usp            String?  // unique selling proposition
+  priceRange     String?  // e.g. "₹50L–₹2Cr", "₹999/month"
+  website        String?
+  whatsappNumber String?
+  offers         String[] @default([]) // current promotions / offers
+  products       Json?    // [{ name, description, price }]
+  competitors    String[] @default([]) // named competitors (free text)
+  keywords       String[] @default([]) // core topics / seed keywords
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  workspace Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+}
+
 model ContentIdea {
   id          String   @id @default(cuid())
   workspaceId String
@@ -498,6 +562,7 @@ model GoogleReview {
   aiSummary   String?
   replyText   String?   // Store AI-generated or custom reply
   repliedAt   DateTime?
+  googleResourceName String? // GBP API review resource name (enables real reply write-back)
 
   workspace   Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
 

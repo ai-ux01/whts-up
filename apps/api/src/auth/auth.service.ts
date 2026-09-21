@@ -49,6 +49,12 @@ export class AuthService {
     });
 
     const user = workspace.users[0];
+
+    // Multi-business: record the owner's membership of their first workspace.
+    await this.prisma.workspaceMembership.create({
+      data: { userId: user.id, workspaceId: workspace.id, role: UserRole.ADMIN },
+    });
+
     return this.buildAuthResponse(user);
   }
 

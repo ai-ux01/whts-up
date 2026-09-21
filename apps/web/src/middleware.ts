@@ -36,7 +36,7 @@ export function middleware(request: NextRequest) {
 
   // Keep platform admins in /admin and client users out of it.
   if (pathname.startsWith('/admin') && marker !== 'platform') {
-    return NextResponse.redirect(new URL('/dashboard', request.url));
+    return NextResponse.redirect(new URL('/command-center', request.url));
   }
 
   return NextResponse.next();

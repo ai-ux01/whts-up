@@ -44,26 +44,7 @@ export class AIInsightsService {
     const model = this.aiService.getChatModel();
 
     if (!client) {
-      // Fallback local mock insights if AI keys are missing
-      const mockInsights = [
-        {
-          insight: 'Your customer satisfaction (CSAT) is highly stable at 84%. Keep up the good work!',
-          category: 'CSAT_OVERVIEW',
-        },
-        {
-          insight: 'Positive reviews frequently highlight friendly staff behavior and efficient counter service.',
-          category: 'POSITIVE_HIGHLIGHT',
-        },
-      ];
-
-      const saved = [];
-      for (const m of mockInsights) {
-        const ins = await this.prisma.reputationInsight.create({
-          data: { workspaceId, insight: m.insight, category: m.category },
-        });
-        saved.push(ins);
-      }
-      return saved;
+      return this.saveDerivedInsights(workspaceId, feedbacks, googleReviews);
     }
 
     try {
@@ -131,9 +112,74 @@ You must respond in strict, valid JSON format matching this schema:
       this.logger.error('Error generating AI business insights:', err);
     }
 
-    return this.prisma.reputationInsight.findMany({
-      where: { workspaceId },
-      orderBy: { createdAt: 'desc' },
-    });
+    // AI call failed (e.g. quota/rate limit/network) — fall back to rule-based
+    // insights computed from the real data instead of returning nothing.
+    return this.saveDerivedInsights(workspaceId, feedbacks, googleReviews);
+  }
+
+  /**
+   * Compute honest, rule-based insights from real ratings/sentiment when the AI
+   * provider is unavailable. Numbers here are derived from the actual data — not
+   * hardcoded — so the feature still produces a real result.
+   */
+  private async saveDerivedInsights(
+    workspaceId: string,
+    feedbacks: Array<{ rating: number; complaintCategory?: string | null }>,
+    googleReviews: Array<{ rating: number; sentiment?: string | null }>,
+  ) {
+    const ratings = [
+      ...feedbacks.map((f) => f.rating),
+      ...googleReviews.map((g) => g.rating),
+    ];
+    const total = ratings.length;
+    if (total === 0) return [];
+
+    const satisfied = ratings.filter((r) => r >= 4).length;
+    const csat = Math.round((satisfied / total) * 100);
+    const negatives = ratings.filter((r) => r <= 2).length;
+
+    const complaintCounts = new Map<string, number>();
+    for (const f of feedbacks) {
+      const c = f.complaintCategory;
+      if (c && c !== 'None') complaintCounts.set(c, (complaintCounts.get(c) || 0) + 1);
+    }
+    const topComplaint = [...complaintCounts.entries()].sort((a, b) => b[1] - a[1])[0];
+
+    const derived: Array<{ insight: string; category: string }> = [
+      {
+        insight: `CSAT is ${csat}% across ${total} rating(s). ${
+          csat >= 80
+            ? 'Strong — keep reinforcing what customers already like.'
+            : 'There is room to improve; prioritise the concerns below.'
+        }`,
+        category: 'CSAT_OVERVIEW',
+      },
+    ];
+    if (satisfied > 0) {
+      derived.push({
+        insight: `${satisfied} of ${total} customers rated you 4★ or higher — highlight these happy customers in your marketing.`,
+        category: 'POSITIVE_HIGHLIGHT',
+      });
+    }
+    if (negatives > 0 || topComplaint) {
+      derived.push({
+        insight: topComplaint
+          ? `Most common complaint theme: "${topComplaint[0]}" (${topComplaint[1]} mention(s)). Address this operationally to lift ratings.`
+          : `${negatives} low rating(s) (≤2★) detected. Follow up with these customers to recover the relationship.`,
+        category: 'COMPLAINT_TREND',
+      });
+    }
+
+    await this.prisma.reputationInsight.deleteMany({ where: { workspaceId } });
+    const saved = [];
+    for (const d of derived) {
+      saved.push(
+        await this.prisma.reputationInsight.create({
+          data: { workspaceId, insight: d.insight, category: d.category },
+        }),
+      );
+    }
+    this.logger.log(`Compiled ${saved.length} rule-based insights (AI unavailable).`);
+    return saved;
   }
 }

@@ -33,6 +33,10 @@ export const useAuthStore = create<AuthState>()(
       user: null,
       setAuth: (user, accessToken) => {
         setTokens(user.portal, accessToken);
+        // Seed the active workspace for multi-business header scoping.
+        if (typeof window !== 'undefined' && user.workspaceId) {
+          localStorage.setItem('activeWorkspaceId', user.workspaceId);
+        }
         set({ user });
       },
       logout: () => {

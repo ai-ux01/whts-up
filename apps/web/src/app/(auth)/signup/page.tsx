@@ -51,7 +51,7 @@ export default function SignupPage() {
       );
       connectSocket(data.accessToken);
       toast.success('Account created!');
-      router.push('/dashboard');
+      router.push('/command-center');
     } catch (err) {
       toast.error(err instanceof Error ? err.message : 'Signup failed');
     } finally {

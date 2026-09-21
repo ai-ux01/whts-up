@@ -60,6 +60,9 @@ export async function api<T>(
   if (!options.skipAuth && typeof window !== 'undefined') {
     const { access } = getTokens(portal);
     if (access) headers.Authorization = `Bearer ${access}`;
+    // Multi-business: send the active workspace so the API scopes to it.
+    const activeWs = localStorage.getItem('activeWorkspaceId');
+    if (activeWs) headers['X-Workspace-Id'] = activeWs;
   }
 
   let res = await fetch(`${API_URL}${path}`, {

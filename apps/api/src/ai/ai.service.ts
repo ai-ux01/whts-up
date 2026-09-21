@@ -257,4 +257,51 @@ export class AiService implements OnModuleInit {
   getChatModel() {
     return this.chatModel;
   }
+
+  /**
+   * Phase 4 — on-demand AI-suggested reply for the inbox. Does NOT send the
+   * message; returns suggested text for the agent to review/edit/send.
+   */
+  async suggestReply(
+    workspaceId: string,
+    conversationId: string,
+  ): Promise<{ suggestion: string | null; reason?: string }> {
+    if (!this.isConfigured()) {
+      return { suggestion: null, reason: 'AI is not configured' };
+    }
+
+    const workspace = await this.prisma.workspace.findUnique({
+      where: { id: workspaceId },
+    });
+    const conversation = await this.conversationsService.findOne(
+      workspaceId,
+      conversationId,
+    );
+    const recent = await this.messagesService.getRecentMessages(conversationId, 10);
+    if (!recent.length) {
+      return { suggestion: null, reason: 'No conversation history yet' };
+    }
+
+    const lead = conversation.contact.lead;
+    const suggestion = await this.generateReply({
+      systemPrompt:
+        workspace?.aiSystemPrompt ||
+        `You are a helpful sales assistant for ${workspace?.businessName || workspace?.name || 'the business'}. Draft the next reply to the customer.`,
+      messages: recent
+        .slice()
+        .reverse()
+        .map((m) => ({
+          role:
+            m.sender === MessageSender.CONTACT
+              ? ('user' as const)
+              : ('assistant' as const),
+          content: m.content,
+        })),
+      leadContext: lead
+        ? `Lead status: ${lead.status}. Tags: ${lead.tags.join(', ') || 'none'}.`
+        : '',
+    });
+
+    return { suggestion };
+  }
 }

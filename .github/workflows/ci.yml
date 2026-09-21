@@ -51,5 +51,8 @@ jobs:
           NEXT_PUBLIC_API_URL: http://localhost:4000/api/v1
           NEXT_PUBLIC_WS_URL: http://localhost:4000
 
-      - name: Unit tests (API)
+      - name: Unit tests (API — legacy ts-node specs)
         run: pnpm --filter api run test:unit
+
+      - name: Unit tests (API — Jest)
+        run: pnpm --filter api run test

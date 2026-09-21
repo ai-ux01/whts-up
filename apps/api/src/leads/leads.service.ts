@@ -71,14 +71,80 @@ export class LeadsService {
     return lead;
   }
 
+  /**
+   * Phase 4 — pipeline view: leads grouped by status for the Kanban board.
+   * Columns are ordered NEW → INTERESTED → FOLLOW_UP → CLOSED.
+   */
+  async pipeline(workspaceId: string) {
+    const leads = await this.prisma.lead.findMany({
+      where: { workspaceId },
+      include: {
+        contact: { select: { id: true, name: true, phone: true, leadSource: true } },
+      },
+      orderBy: { lastInteractionAt: 'desc' },
+    });
+
+    const columns: LeadStatus[] = [
+      LeadStatus.NEW,
+      LeadStatus.INTERESTED,
+      LeadStatus.FOLLOW_UP,
+      LeadStatus.CLOSED,
+    ];
+
+    return columns.map((status) => ({
+      status,
+      leads: leads
+        .filter((l) => l.status === status)
+        .map((l) => ({
+          id: l.id,
+          name: l.contact.name,
+          phone: l.contact.phone,
+          leadSource: l.contact.leadSource,
+          tags: l.tags,
+          lastInteractionAt: l.lastInteractionAt,
+        })),
+    }));
+  }
+
+  /**
+   * Phase 4 — follow-up reminders: leads that need attention, i.e. flagged
+   * FOLLOW_UP with no interaction in the last 24h, oldest first.
+   */
+  async followUps(workspaceId: string) {
+    const cutoff = new Date(Date.now() - 24 * 60 * 60 * 1000);
+    const leads = await this.prisma.lead.findMany({
+      where: {
+        workspaceId,
+        status: LeadStatus.FOLLOW_UP,
+        lastInteractionAt: { lte: cutoff },
+      },
+      include: {
+        contact: { select: { id: true, name: true, phone: true } },
+      },
+      orderBy: { lastInteractionAt: 'asc' },
+    });
+
+    return leads.map((l) => ({
+      id: l.id,
+      name: l.contact.name,
+      phone: l.contact.phone,
+      notes: l.notes,
+      lastInteractionAt: l.lastInteractionAt,
+      overdueDays: Math.floor(
+        (Date.now() - l.lastInteractionAt.getTime()) / (24 * 60 * 60 * 1000),
+      ),
+    }));
+  }
+
   async update(workspaceId: string, id: string, dto: {
     status?: LeadStatus;
     notes?: string;
     assignedUserId?: string | null;
     tags?: string[];
     name?: string;
+    value?: number;
   }) {
-    await this.findOne(workspaceId, id);
+    const current = await this.findOne(workspaceId, id);
 
     if (dto.name) {
       const lead = await this.prisma.lead.findUnique({ where: { id } });
@@ -90,6 +156,14 @@ export class LeadsService {
       }
     }
 
+    // Revenue attribution: set/clear wonAt when moving in/out of CLOSED.
+    let wonAt: Date | null | undefined;
+    if (dto.status === LeadStatus.CLOSED && current.status !== LeadStatus.CLOSED) {
+      wonAt = new Date();
+    } else if (dto.status && dto.status !== LeadStatus.CLOSED && current.status === LeadStatus.CLOSED) {
+      wonAt = null;
+    }
+
     return this.prisma.lead.update({
       where: { id },
       data: {
@@ -97,6 +171,8 @@ export class LeadsService {
         notes: dto.notes,
         assignedUserId: dto.assignedUserId,
         tags: dto.tags,
+        ...(dto.value !== undefined ? { value: dto.value } : {}),
+        ...(wonAt !== undefined ? { wonAt } : {}),
       },
       include: {
         contact: true,

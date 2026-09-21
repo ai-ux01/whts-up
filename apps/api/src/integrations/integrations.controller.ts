@@ -1,13 +1,23 @@
 import {
+  Body,
   Controller,
   Delete,
   Get,
+  Post,
   Query,
   Res,
   UseGuards,
 } from '@nestjs/common';
 import { SkipThrottle } from '@nestjs/throttler';
 import { Response } from 'express';
+import {
+  IsBoolean,
+  IsNumber,
+  IsOptional,
+  IsString,
+  MaxLength,
+  Min,
+} from 'class-validator';
 import { UserRole } from '@prisma/client';
 import { ConfigService } from '@nestjs/config';
 import { JwtAuthGuard } from '../auth/jwt-auth.guard';
@@ -20,6 +30,26 @@ import { requireWorkspaceId } from '../common/utils/workspace-id';
 import { GoogleOAuthService } from './google-oauth.service';
 import { MetaOAuthService } from './meta-oauth.service';
 import { OAuthStateService } from './oauth-state.service';
+import { AdsInsightsService } from './ads-insights.service';
+import { AdsCampaignService } from './ads-campaign.service';
+
+class CreateAdCampaignDto {
+  @IsString()
+  @MaxLength(200)
+  name!: string;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(60)
+  objective?: string;
+
+  @IsNumber()
+  @Min(1)
+  dailyBudget!: number;
+
+  @IsBoolean()
+  confirm!: boolean;
+}
 
 @Controller('integrations')
 export class IntegrationsController {
@@ -28,7 +58,36 @@ export class IntegrationsController {
     private oauthState: OAuthStateService,
     private metaOAuth: MetaOAuthService,
     private googleOAuth: GoogleOAuthService,
+    private adsInsights: AdsInsightsService,
+    private adsCampaign: AdsCampaignService,
   ) {}
+
+  /**
+   * Create a Meta ad campaign (ADMIN only, live-money). Created PAUSED with a
+   * server-enforced spend cap; requires explicit confirm:true. Does not activate.
+   */
+  @Post('ads/campaigns')
+  @UseGuards(JwtAuthGuard, ClientUserGuard, RolesGuard)
+  @Roles(UserRole.ADMIN)
+  createAdCampaign(
+    @CurrentUser() user: AuthUser,
+    @Body() dto: CreateAdCampaignDto,
+  ) {
+    return this.adsCampaign.createCampaign(requireWorkspaceId(user), dto);
+  }
+
+  /** Read-only Meta ad spend/insights for the active workspace. */
+  @Get('ads/insights')
+  @UseGuards(JwtAuthGuard, ClientUserGuard)
+  adsInsightsSummary(
+    @CurrentUser() user: AuthUser,
+    @Query('period') period?: string,
+  ) {
+    return this.adsInsights.getSpendSummary(
+      requireWorkspaceId(user),
+      period || 'this_month',
+    );
+  }
 
   private frontendBase(state?: string, provider?: 'meta' | 'google'): string {
     if (state && provider) {

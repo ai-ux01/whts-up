@@ -16,6 +16,26 @@ import { WorkspacesService } from './workspaces.service';
 export class WorkspacesController {
   constructor(private workspacesService: WorkspacesService) {}
 
+  // ---- Multi-business (JWT only; independent of the active workspace) ----
+
+  @Get('mine')
+  @UseGuards(JwtAuthGuard)
+  listMine(@CurrentUser() user: AuthUser) {
+    return this.workspacesService.listMine(user.id);
+  }
+
+  @Post()
+  @UseGuards(JwtAuthGuard)
+  createWorkspace(@CurrentUser() user: AuthUser, @Body() dto: { name: string }) {
+    return this.workspacesService.createForUser(user.id, dto.name);
+  }
+
+  @Post('switch')
+  @UseGuards(JwtAuthGuard)
+  switchWorkspace(@CurrentUser() user: AuthUser, @Body() dto: { workspaceId: string }) {
+    return this.workspacesService.switchActive(user.id, dto.workspaceId);
+  }
+
   @Get('settings')
   getSettings(@CurrentUser() user: AuthUser) {
     return this.workspacesService.getSettings(requireWorkspaceId(user));

@@ -50,7 +50,7 @@ export default function LoginPage() {
       );
       connectSocket(data.accessToken);
       toast.success('Welcome back!');
-      router.push('/dashboard');
+      router.push('/command-center');
     } catch (err) {
       toast.error(err instanceof Error ? err.message : 'Login failed');
     } finally {

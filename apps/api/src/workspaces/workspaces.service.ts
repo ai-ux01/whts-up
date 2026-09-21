@@ -12,6 +12,7 @@ import { MetaOAuthService } from '../integrations/meta-oauth.service';
 import { normalizePhoneE164 } from '../common/utils/phone';
 import { SecretsCryptoService } from '../crypto/secrets-crypto.service';
 import { UpdateWorkspaceSettingsDto } from './dto/update-settings.dto';
+import { slugifyWorkspaceName } from '../common/utils/slug';
 import { Workspace } from '@prisma/client';
 
 export interface MarketingAccountStatus {
@@ -32,6 +33,71 @@ export class WorkspacesService {
     private whatsappService: WhatsAppService,
     private metaOAuth: MetaOAuthService,
   ) {}
+
+  /** Multi-business: list all workspaces the user is a member of. */
+  async listMine(userId: string) {
+    const memberships = await this.prisma.workspaceMembership.findMany({
+      where: { userId },
+      include: {
+        workspace: { select: { id: true, name: true, slug: true, businessType: true } },
+      },
+      orderBy: { createdAt: 'asc' },
+    });
+    const user = await this.prisma.user.findUnique({
+      where: { id: userId },
+      select: { workspaceId: true },
+    });
+    return memberships.map((m) => ({
+      id: m.workspace.id,
+      name: m.workspace.name,
+      slug: m.workspace.slug,
+      businessType: m.workspace.businessType,
+      role: m.role,
+      isActive: m.workspace.id === user?.workspaceId,
+    }));
+  }
+
+  /** Multi-business: create a new workspace owned by the user and make it active. */
+  async createForUser(userId: string, name: string) {
+    const base = slugifyWorkspaceName(name);
+    let slug = base;
+    let n = 1;
+    // Ensure slug uniqueness.
+    while (await this.prisma.workspace.findUnique({ where: { slug } })) {
+      slug = `${base}-${n++}`;
+    }
+
+    const workspace = await this.prisma.workspace.create({
+      data: { name, slug, businessName: name },
+    });
+
+    await this.prisma.workspaceMembership.create({
+      data: { userId, workspaceId: workspace.id, role: 'ADMIN' },
+    });
+
+    // Make the new workspace the user's active/default one.
+    await this.prisma.user.update({
+      where: { id: userId },
+      data: { workspaceId: workspace.id },
+    });
+
+    return { id: workspace.id, name: workspace.name, slug: workspace.slug };
+  }
+
+  /** Multi-business: set the user's default/active workspace (validated). */
+  async switchActive(userId: string, workspaceId: string) {
+    const membership = await this.prisma.workspaceMembership.findUnique({
+      where: { userId_workspaceId: { userId, workspaceId } },
+    });
+    if (!membership) {
+      throw new BadRequestException('You are not a member of this workspace');
+    }
+    await this.prisma.user.update({
+      where: { id: userId },
+      data: { workspaceId },
+    });
+    return { success: true, activeWorkspaceId: workspaceId };
+  }
 
   private envWhatsApp() {
     return {

@@ -50,54 +50,9 @@ export class AIRecommendationsService {
     const client = this.aiService.getClient();
     const model = this.aiService.getChatModel();
 
+    // No AI configured → derive recommendations from real complaint data.
     if (!client) {
-      // Local robust mock recommendations tailored for Indian local business context
-      const mockImprovements = [
-        {
-          suggestion: 'Competitor reviews for Suresh Salon indicate they have 32% positive praise for "Premium Massage & Hair Treatments" at lower bundles. Bundle your haircut with a complimentary scalp massage to match Suresh Salon and increase average transaction sizes.',
-          category: 'Service Bundle Upgrade',
-          priority: 'HIGH',
-          impactScore: 88,
-        },
-        {
-          suggestion: 'Suresh Salon customers complain about "long waiting hours during weekends" (28% of their 1-3 star reviews). Capitalize on this by launching a "Fast-Track Saturday" option on your WhatsApp CRM with guaranteed time-slots, charging a premium or offering it to loyal customers.',
-          category: 'Operational Speed',
-          priority: 'HIGH',
-          impactScore: 82,
-        },
-        {
-          suggestion: 'Your own feedback reviews highlight "delays in staff response" (12% of complaints). Introduce automated greeting and auto-FAQ WhatsApp triggers to answer customer price queries instantly, reducing booking drop-offs.',
-          category: 'Customer Support',
-          priority: 'MEDIUM',
-          impactScore: 74,
-        },
-        {
-          suggestion: 'Competitor pricing reviews indicate they charged extra for sanitizer and safety kits, creating irritation (15% complaints). Advertise "Zero Hidden Charges & Complementary Safety Cleanliness" on your booking invites to build trust.',
-          category: 'Pricing Transparency',
-          priority: 'LOW',
-          impactScore: 55,
-        },
-      ];
-
-      // Delete existing suggestions and seed new ones
-      await this.prisma.improvementSuggestion.deleteMany({
-        where: { businessId: workspaceId },
-      });
-
-      const saved = [];
-      for (const item of mockImprovements) {
-        const doc = await this.prisma.improvementSuggestion.create({
-          data: {
-            businessId: workspaceId,
-            suggestion: item.suggestion,
-            category: item.category,
-            priority: item.priority,
-            impactScore: item.impactScore,
-          },
-        });
-        saved.push(doc);
-      }
-      return saved;
+      return this.saveDerivedImprovements(workspaceId, competitors, ownFeedbacks, ownReviews);
     }
 
     try {
@@ -179,9 +134,84 @@ You must respond in strict, valid JSON format matching this schema:
       this.logger.error('Error generating AI Recommendations:', err);
     }
 
-    return this.prisma.improvementSuggestion.findMany({
-      where: { businessId: workspaceId },
-      orderBy: { impactScore: 'desc' },
+    // AI failed — derive recommendations from real complaint data.
+    return this.saveDerivedImprovements(workspaceId, competitors, ownFeedbacks, ownReviews);
+  }
+
+  /**
+   * Rule-based improvement recommendations computed from REAL competitor and own
+   * complaint categories. Turns the most frequent complaint themes into concrete
+   * suggestions with a data-derived impact score. Never fabricates competitor names.
+   */
+  private async saveDerivedImprovements(
+    workspaceId: string,
+    competitors: Array<{ name: string; reviews: Array<{ rating: number; complaintCategory: string | null; praiseCategory: string | null }> }>,
+    ownFeedbacks: Array<{ rating: number; complaintCategory: string | null }>,
+    ownReviews: Array<{ rating: number }>,
+  ) {
+    type Rec = { suggestion: string; category: string; priority: string; impactScore: number };
+    const recs: Rec[] = [];
+
+    // Competitor complaint themes → opportunities to beat them.
+    const compTally = new Map<string, { count: number; names: Set<string> }>();
+    for (const c of competitors) {
+      for (const r of c.reviews) {
+        if (r.rating <= 3 && r.complaintCategory) {
+          const e = compTally.get(r.complaintCategory) || { count: 0, names: new Set<string>() };
+          e.count += 1;
+          e.names.add(c.name);
+          compTally.set(r.complaintCategory, e);
+        }
+      }
+    }
+    const rankedComp = [...compTally.entries()].sort((a, b) => b[1].count - a[1].count).slice(0, 3);
+    rankedComp.forEach(([cat, info], i) => {
+      recs.push({
+        suggestion: `Competitors (${[...info.names].slice(0, 2).join(', ')}) get ${info.count} complaint(s) about "${cat}". Make "${cat}" a visible promise in your offers and WhatsApp messaging to win their unhappy customers.`,
+        category: cat,
+        priority: i === 0 ? 'HIGH' : i === 1 ? 'MEDIUM' : 'LOW',
+        impactScore: Math.min(95, 60 + info.count * 8),
+      });
     });
+
+    // Our own complaint themes → things to fix internally.
+    const ownTally = new Map<string, number>();
+    for (const f of ownFeedbacks) {
+      if (f.rating <= 3 && f.complaintCategory) ownTally.set(f.complaintCategory, (ownTally.get(f.complaintCategory) || 0) + 1);
+    }
+    const rankedOwn = [...ownTally.entries()].sort((a, b) => b[1] - a[1]).slice(0, 2);
+    for (const [cat, n] of rankedOwn) {
+      recs.push({
+        suggestion: `Your own customers raised "${cat}" ${n} time(s). Prioritise fixing this — set up automated WhatsApp follow-ups to close the loop and recover ratings.`,
+        category: cat,
+        priority: 'HIGH',
+        impactScore: Math.min(90, 55 + n * 10),
+      });
+    }
+
+    if (recs.length === 0) {
+      return this.prisma.improvementSuggestion.findMany({
+        where: { businessId: workspaceId },
+        orderBy: { impactScore: 'desc' },
+      });
+    }
+
+    await this.prisma.improvementSuggestion.deleteMany({ where: { businessId: workspaceId } });
+    const saved = [];
+    for (const r of recs) {
+      saved.push(
+        await this.prisma.improvementSuggestion.create({
+          data: {
+            businessId: workspaceId,
+            suggestion: r.suggestion,
+            category: r.category,
+            priority: r.priority,
+            impactScore: r.impactScore,
+          },
+        }),
+      );
+    }
+    this.logger.log(`Compiled ${saved.length} rule-based improvements (AI unavailable).`);
+    return saved;
   }
 }

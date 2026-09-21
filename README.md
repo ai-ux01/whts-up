@@ -1,6 +1,25 @@
-# AI Content & Communication OS 🚀
+# AI Marketing Operator 🚀
 
-A comprehensive, multi-channel AI Content & Communication suite designed for Indian SMBs. The platform seamlessly bridges the gap between customer relationship management and automated visual marketing, acting as a unified **WhatsApp CRM + Canva-style Content Studio + Buffer-style Social Scheduler + AI Reels Creator**.
+A personal **AI marketing operator** for Indian SMBs — one person running one or more
+businesses, with the app acting as their marketing team. It connects research, content,
+campaigns, WhatsApp/CRM, and analytics into a single workflow:
+
+> **Research → Create → Campaign → Publish → Leads → Follow-up → Sales → Intelligence → next actions**
+
+Under the hood it's a **WhatsApp CRM + AI Content Studio + Campaign Engine + Reels Creator +
+Reputation/Competitor Intelligence**, unified by a **Command Center** ("what should I do
+today?") and a **Marketing Brain** (a business profile the AI uses everywhere).
+
+### Highlights
+* **Command Center** — KPIs + auto-derived "Today's Actions" from real state.
+* **Campaign Engine** — turn one opportunity into a full campaign (reel, posts, ad copy,
+  WhatsApp, follow-ups) and materialize approved parts into drafts.
+* **Sales Engine** — drag-and-drop lead pipeline, AI-suggested replies, follow-up reminders.
+* **Intelligence** — acquisition/conversion/economics with real revenue attribution and
+  (when a Meta ad account is connected) ad spend, cost/lead, and ROAS.
+* **Multi-business** — one login, switch between multiple workspaces.
+* **Secure by default** — helmet headers, httpOnly refresh cookies, AES-256-GCM token
+  encryption, per-workspace tenant isolation.
 
 ---
 
@@ -63,6 +82,25 @@ pnpm dev
 ---
 
 ## 💡 Key Core Modules
+
+### 0. Command Center & Marketing Brain (the operator layer)
+* **Command Center** (`/dashboard/command-center`): the daily landing screen — real KPIs
+  (new leads, WhatsApp chats, pipeline) plus **Today's Actions** auto-derived from state
+  (conversations awaiting reply, stale follow-ups, drafts, scheduled posts due).
+* **Marketing Brain** (`/content/business-profile`): a central business profile (industry,
+  USP, offers, target customer, competitors, keywords) injected into every AI prompt so
+  content and campaigns are business-specific.
+* **Campaign Engine** (`/content/campaign-engine/*`): one opportunity → a full campaign
+  bundle (strategy, reel, IG/FB posts, ad copy, WhatsApp first-touch, follow-up sequence,
+  landing copy). Approve parts to materialize into DRAFT records — nothing auto-publishes.
+* **Sales Engine**: drag-and-drop lead **pipeline** (`/leads/pipeline`), overdue
+  **follow-ups** (`/leads/follow-ups`), and on-demand **AI-suggested replies**
+  (`/conversations/:id/messages/suggest-reply`).
+* **Intelligence** (`/dashboard/intelligence`): acquisition, conversion funnel, revenue
+  attribution (`Lead.value`/`wonAt`), content performance, plus ad spend / cost-per-lead /
+  ROAS when a Meta ad account is connected (read-only Marketing API insights).
+* **Multi-business**: `/workspaces/mine`, `/workspaces` (create), `/workspaces/switch`;
+  switch active workspace via the header or the `X-Workspace-Id` request header.
 
 ### 1. AI Content Studio
 * **Brand Kit Builder**: Save primary/secondary HEX branding colors, typography fonts, and voice guidelines.

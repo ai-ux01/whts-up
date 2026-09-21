@@ -389,6 +389,75 @@ export class CompetitorService {
     return this.filterDemoCompetitors(query, category, location);
   }
 
+  /**
+   * Auto-discovers competitors from the business's own Marketing Brain profile
+   * (industry + location) — no manual search input needed. Optionally auto-tracks
+   * the top results so the analysis is populated in one click.
+   *
+   * Returns the discovered list (each flagged as alreadyTracked) plus, when
+   * autoTrack is set, the competitors that were newly tracked.
+   */
+  async autoDiscover(
+    workspaceId: string,
+    opts?: { autoTrack?: boolean; limit?: number },
+  ) {
+    const profile = await this.prisma.businessProfile.findUnique({
+      where: { workspaceId },
+      select: { industry: true, location: true },
+    });
+
+    const category = profile?.industry?.trim() || '';
+    const location = profile?.location?.trim() || '';
+
+    if (!location && !category) {
+      throw new BadRequestException(
+        'Set your business industry and location in the Marketing Brain first, so competitors can be found automatically.',
+      );
+    }
+
+    // Discover using the profile's industry + location (query left blank).
+    const discovered = await this.searchCompetitors('', category, location);
+
+    // Flag which are already tracked so the UI/auto-track can skip them.
+    const tracked = await this.prisma.competitor.findMany({
+      where: { workspaceId },
+      select: { name: true },
+    });
+    const trackedNames = new Set(tracked.map((t) => t.name.toLowerCase()));
+    const results = discovered.map((d) => ({
+      ...d,
+      alreadyTracked: trackedNames.has(d.name.toLowerCase()),
+    }));
+
+    let newlyTracked: Array<{ name: string }> = [];
+    if (opts?.autoTrack) {
+      const limit = opts.limit ?? 3;
+      const toTrack = results.filter((r) => !r.alreadyTracked).slice(0, limit);
+      for (const c of toTrack) {
+        try {
+          const created = await this.trackCompetitor(workspaceId, {
+            name: c.name,
+            category: c.category,
+            location: c.location,
+            averageRating: c.averageRating,
+            totalReviews: c.totalReviews,
+            placeId: (c as { placeId?: string }).placeId,
+          });
+          newlyTracked.push({ name: created.name });
+        } catch (err) {
+          this.logger.warn(`Auto-track skipped "${c.name}": ${(err as Error).message}`);
+        }
+      }
+    }
+
+    return {
+      usedProfile: { industry: category || null, location: location || null },
+      discovered: results,
+      newlyTracked,
+      autoTracked: opts?.autoTrack ?? false,
+    };
+  }
+
   private async searchViaGooglePlaces(
     apiKey: string,
     query: string,

@@ -84,6 +84,34 @@ export default function DashboardTab({ compareData, refetchCompare }: DashboardT
     },
   });
 
+  // Auto-discover competitors from the business's own industry + location
+  // (Marketing Brain) and auto-track the top few — no manual input needed.
+  const autoDiscoverMutation = useMutation({
+    mutationFn: () =>
+      api<{
+        usedProfile: { industry: string | null; location: string | null };
+        discovered: Array<CompetitorSearchResult & { alreadyTracked: boolean; placeId?: string }>;
+        newlyTracked: Array<{ name: string }>;
+      }>('/competitors/auto-discover?autoTrack=true', { method: 'POST' }),
+    onSuccess: (res) => {
+      const loc = res.usedProfile.location || 'your area';
+      if (res.newlyTracked.length > 0) {
+        toast.success(`Auto-tracked ${res.newlyTracked.length} competitor(s) near ${loc}: ${res.newlyTracked.map((c) => c.name).join(', ')}`);
+      } else if (res.discovered.length > 0) {
+        toast.info(`Found ${res.discovered.length} competitor(s) near ${loc} — all already tracked.`);
+      } else {
+        toast.info(`No competitors found near ${loc}.`);
+      }
+      // Show any not-yet-tracked results in the list for manual tracking too.
+      setSearchResults(res.discovered.filter((d) => !d.alreadyTracked));
+      refetchCompare();
+      queryClient.invalidateQueries({ queryKey: ['competitor-analysis'] });
+    },
+    onError: (err: Error) => {
+      toast.error(err.message || 'Auto-discover failed. Set your industry & location in Marketing Brain.');
+    },
+  });
+
   const handleSearch = async (e: React.FormEvent) => {
     e.preventDefault();
     setIsSearching(true);
@@ -117,14 +145,24 @@ export default function DashboardTab({ compareData, refetchCompare }: DashboardT
     <div className="space-y-6">
       {/* 1. Discover Competitors Search Box */}
       <div className="rounded-xl border border-border bg-card p-6 shadow-sm space-y-4">
-        <div>
-          <h3 className="font-bold text-lg text-white flex items-center gap-2">
-            <Search className="h-5 w-5 text-indigo-400" />
-            Discover Competitors (Mock Places Engine)
-          </h3>
-          <p className="text-sm text-muted-foreground">
-            Search local businesses in India across major cities to add them to your competitor tracker watch list.
-          </p>
+        <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+          <div>
+            <h3 className="font-bold text-lg text-white flex items-center gap-2">
+              <Search className="h-5 w-5 text-indigo-400" />
+              Discover Competitors
+            </h3>
+            <p className="text-sm text-muted-foreground">
+              Auto-find competitors near your business, or search manually by area below.
+            </p>
+          </div>
+          <button
+            onClick={() => autoDiscoverMutation.mutate()}
+            disabled={autoDiscoverMutation.isPending}
+            className="inline-flex items-center justify-center gap-2 rounded-lg bg-emerald-600 hover:bg-emerald-500 text-white font-semibold px-4 py-2.5 text-sm shadow-md transition-all active:scale-95 cursor-pointer disabled:opacity-50 whitespace-nowrap"
+          >
+            <MapPin className={`h-4 w-4 ${autoDiscoverMutation.isPending ? 'animate-pulse' : ''}`} />
+            {autoDiscoverMutation.isPending ? 'Finding near you…' : 'Auto-find by my location'}
+          </button>
         </div>
 
         <form onSubmit={handleSearch} className="grid gap-3 sm:grid-cols-4 items-end">

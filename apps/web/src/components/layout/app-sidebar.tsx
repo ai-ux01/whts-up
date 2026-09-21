@@ -16,22 +16,36 @@ import {
   BarChart2,
   Star,
   Target,
+  Home,
+  Brain,
+  Rocket,
+  PartyPopper,
+  KanbanSquare,
+  TrendingUp,
+  Map,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { useAuthStore } from '@/stores/auth-store';
 
 const nav = [
+  { href: '/command-center', label: 'Command Center', icon: Home },
+  { href: '/flow', label: 'How it works', icon: Map },
   { href: '/dashboard', label: 'Dashboard', icon: LayoutDashboard },
   { href: '/inbox', label: 'Inbox', icon: Inbox },
   { href: '/leads', label: 'Leads', icon: Users },
+  { href: '/pipeline', label: 'Pipeline', icon: KanbanSquare },
   { href: '/campaigns', label: 'Campaigns', icon: Megaphone },
+  { href: '/campaign-engine', label: 'Campaign Engine', icon: Rocket },
+  { href: '/launch', label: 'Launched', icon: PartyPopper },
   { href: '/content-studio', label: 'Content Studio', icon: Sparkles },
   { href: '/reel-creator', label: 'Reel Creator', icon: Film },
   { href: '/media-library', label: 'Media Library', icon: Image },
   { href: '/content-calendar', label: 'Content Calendar', icon: Calendar },
   { href: '/analytics', label: 'Analytics', icon: BarChart2 },
+  { href: '/intelligence', label: 'Intelligence', icon: TrendingUp },
   { href: '/reputation', label: 'Reputation', icon: Star },
   { href: '/competitors', label: 'Competitors', icon: Target },
+  { href: '/business-profile', label: 'Marketing Brain', icon: Brain },
   { href: '/settings', label: 'Settings', icon: Settings, adminOnly: true },
 ];
 
